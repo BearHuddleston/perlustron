@@ -1,0 +1,254 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            bin: perlustron
+            archive: perlustron-linux-x86_64.tar.gz
+          - name: windows-x86_64
+            os: windows-latest
+            bin: perlustron.exe
+            archive: perlustron-windows-x86_64.zip
+          - name: macos-x86_64
+            os: macos-15-intel
+            bin: perlustron
+            archive: perlustron-macos-x86_64.tar.gz
+          - name: macos-aarch64
+            os: macos-14
+            bin: perlustron
+            archive: perlustron-macos-aarch64.tar.gz
+    env:
+      MACOS_SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_SIGNING_CERTIFICATE_P12_BASE64 }}
+      MACOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+      MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build release binary
+        env:
+          PERLUSTRON_BUILD_COMMIT: ${{ github.sha }}
+        run: cargo build --release --locked
+
+      - name: Note unsigned macOS fallback
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_CERTIFICATE_P12_BASE64 == ''
+        shell: bash
+        run: echo "macOS signing secrets are not configured; producing an unsigned developer-preview binary."
+
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_CERTIFICATE_P12_BASE64 != '' && env.MACOS_SIGNING_IDENTITY != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          keychain_path="$RUNNER_TEMP/perlustron-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          cert_path="$RUNNER_TEMP/perlustron-signing.p12"
+          echo "$MACOS_SIGNING_CERTIFICATE_P12_BASE64" | base64 --decode > "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" -P "$MACOS_SIGNING_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | sed s/\"//g)
+
+      - name: Sign macOS binary
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_CERTIFICATE_P12_BASE64 != '' && env.MACOS_SIGNING_IDENTITY != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "target/release/${{ matrix.bin }}"
+          codesign --verify --verbose=4 "target/release/${{ matrix.bin }}"
+
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_CERTIFICATE_P12_BASE64 != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          notary_zip="$RUNNER_TEMP/perlustron-${{ matrix.name }}-notary.zip"
+          ditto -c -k --keepParent "target/release/${{ matrix.bin }}" "$notary_zip"
+          xcrun notarytool submit "$notary_zip" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+          xcrun stapler staple "target/release/${{ matrix.bin }}" || echo "Stapling is not supported for this raw CLI binary; notarization remains available online."
+          codesign --verify --verbose=4 "target/release/${{ matrix.bin }}"
+          rm -f "$notary_zip"
+
+      - name: Package Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/perlustron-${{ matrix.name }}"
+          cp "target/release/${{ matrix.bin }}" "dist/perlustron-${{ matrix.name }}/"
+          cp README.md SECURITY.md LICENSE-MIT LICENSE-APACHE "dist/perlustron-${{ matrix.name }}/"
+          cp -R docs "dist/perlustron-${{ matrix.name }}/"
+          tar -czf "dist/${{ matrix.archive }}" -C dist "perlustron-${{ matrix.name }}"
+          (cd dist && shasum -a 256 "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256")
+
+      - name: Validate Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist/validate
+          mkdir -p dist/validate
+          tar -xzf "dist/${{ matrix.archive }}" -C dist/validate
+          cd "dist/validate/perlustron-${{ matrix.name }}"
+          ./perlustron --version
+          ./perlustron --demo --no-open > server.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            if kill -0 "$server_pid" 2>/dev/null; then
+              kill "$server_pid"
+              wait "$server_pid" || true
+            fi
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:8787/" > /tmp/perlustron-index.html; then
+              curl -fsS "http://127.0.0.1:8787/app.js" > /tmp/perlustron-app.js
+              exit 0
+            fi
+            sleep 1
+          done
+          cat server.log
+          exit 1
+
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/perlustron-${{ matrix.name }}" | Out-Null
+          Copy-Item "target/release/${{ matrix.bin }}" "dist/perlustron-${{ matrix.name }}/"
+          Copy-Item README.md,SECURITY.md,LICENSE-MIT,LICENSE-APACHE "dist/perlustron-${{ matrix.name }}/"
+          Copy-Item docs "dist/perlustron-${{ matrix.name }}/docs" -Recurse
+          Compress-Archive -Path "dist/perlustron-${{ matrix.name }}" -DestinationPath "dist/${{ matrix.archive }}"
+          (Get-FileHash "dist/${{ matrix.archive }}" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.archive }}" | Set-Content "dist/${{ matrix.archive }}.sha256"
+
+      - name: Validate Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist/validate
+          New-Item -ItemType Directory -Force -Path dist/validate | Out-Null
+          Expand-Archive -Path "dist/${{ matrix.archive }}" -DestinationPath dist/validate
+          Push-Location "dist/validate/perlustron-${{ matrix.name }}"
+          .\perlustron.exe --version
+          $server = Start-Process -FilePath ".\perlustron.exe" -ArgumentList "--demo","--no-open" -NoNewWindow -PassThru -RedirectStandardOutput server.out -RedirectStandardError server.err
+          try {
+            $ready = $false
+            for ($attempt = 1; $attempt -le 30; $attempt++) {
+              try {
+                Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8787/" | Out-Null
+                Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8787/app.js" | Out-Null
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if (-not $ready) {
+              Get-Content server.out -ErrorAction SilentlyContinue
+              Get-Content server.err -ErrorAction SilentlyContinue
+              throw "Perlustron archive smoke test did not become ready"
+            }
+          } finally {
+            if ($server -and -not $server.HasExited) {
+              Stop-Process -Id $server.Id -Force
+            }
+            Pop-Location
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.archive }}
+          path: |
+            dist/${{ matrix.archive }}
+            dist/${{ matrix.archive }}.sha256
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            dist/*
+          body: |
+            ## Summary
+            Local-first Perlustron release for Codex and Claude Code session forensics.
+
+            ## Release Checklist
+            - Review the prepared release notes for this tag before publishing the draft.
+            - Confirm interactive UI, CLI smoke, redacted exports, and archive validation passed.
+            - Confirm signing/notarization status for macOS artifacts.
+
+            ## Install
+            1. Download the archive for your platform.
+            2. Download the matching `.sha256` file.
+            3. Verify the checksum.
+            4. Extract the archive and run `perlustron --demo`.
+
+            ## Artifacts
+            - `perlustron-linux-x86_64.tar.gz`
+            - `perlustron-windows-x86_64.zip`
+            - `perlustron-macos-x86_64.tar.gz`
+            - `perlustron-macos-aarch64.tar.gz`
+
+            ## Security And Privacy
+            Perlustron is local-first, binds to `127.0.0.1` by default, uses a per-run local API token, and does not implement telemetry.
+
+            ## macOS Signing
+            macOS binaries are signed and submitted for notarization when the release secrets are configured. If the secrets are absent, the macOS archive is an unsigned developer-preview artifact and users may need to remove quarantine manually.
+
+            ## Test Plan
+            - Built frontend assets.
+            - Built release binary.
+            - Packaged checksummed platform archives with docs and security notes.
+            - Extracted each archive, launched `perlustron --demo --no-open`, and loaded the local UI plus `/app.js`.

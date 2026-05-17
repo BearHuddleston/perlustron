@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+import { readFileSync } from "node:fs";
+
+const html = readFileSync("static/index.html", "utf8");
+const styles = readFileSync("static/styles.css", "utf8");
+const app = readFileSync("src/frontend/app.ts", "utf8");
+
+const failures = [];
+
+function expect(condition, message) {
+  if (!condition) {
+    failures.push(message);
+  }
+}
+
+function blockFor(selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = styles.match(new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`, "m"));
+  return match?.groups?.body ?? "";
+}
+
+const eventPopup = blockFor(".event-popup");
+const eventPopupCompact = blockFor(".event-popup.compact");
+
+expect(html.includes('id="stream-minimize"'), "Event context header should include a minimize/expand button.");
+expect(
+  /id="stream-minimize"[^>]+aria-label="Collapse context"/.test(html),
+  "Event context minimize button should expose an accessible default label."
+);
+expect(app.includes('queryRequired<HTMLButtonElement>("#stream-minimize")'), "Frontend should query the context minimize button.");
+expect(app.includes("setEventContextCollapsed"), "Frontend should synchronize compact/expanded context state.");
+expect(app.includes('streamMinimize.addEventListener("click"'), "Frontend should wire the context minimize button.");
+expect(app.includes("function canShowEventContext"), "Frontend should centralize whether Event Context is allowed to appear.");
+expect(app.includes('return activeAppMode === "map"'), "Event Context should only be allowed in Map mode.");
+expect(app.includes('if (nextMode !== "map") {\n    hideEventPopup();\n  }'), "Switching away from Map should hide the Event Context overlay.");
+expect(!app.includes('openSyntheticStream("TIMELINE"'), "Timeline mode should not open the floating Event Context overlay.");
+expect(!app.includes('openSyntheticStream("TRANSCRIPT"'), "Transcript mode should not open the floating Event Context overlay.");
+expect(app.includes("openStream(row.node, { reveal: false })"), "Timeline row selection should update selection/raw payload without revealing Event Context.");
+
+expect(eventPopup.length > 0, "Missing .event-popup styles.");
+expect(!/\btop:\s*0\s*;/.test(eventPopup), "Event context should not be pinned to the top of the scene.");
+expect(!/\bbottom:\s*0\s*;/.test(eventPopup), "Event context should not be pinned to the bottom as a full-height sheet.");
+expect(!/\bmax-height:\s*none\s*;/.test(eventPopup), "Event context should cap its height so it cannot cover the whole map.");
+expect(/\bmax-height:\s*[^;]*(?:vh|calc|min)\(/.test(eventPopup), "Event context should use a responsive max-height.");
+expect(/\bborder-radius:\s*[^;]+;/.test(eventPopup), "Event context should render as a floating card rather than a wall-to-wall drawer.");
+expect(/\bbox-shadow:\s*[^;]+;/.test(eventPopup), "Event context floating card should have depth/shadow treatment.");
+expect(/\bbackdrop-filter:\s*[^;]+;/.test(eventPopup), "Event context should preserve the glass panel treatment.");
+
+expect(eventPopupCompact.length > 0, "Event context should define a compact/minimized state.");
+expect(/\.event-popup\.compact\s+\.context-meta\s*,\s*\.event-popup\.compact\s+\.inspector-summary\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Compact event context should hide detailed metadata and JSON copy.");
+
+if (failures.length) {
+  console.error("Event context panel check failed:");
+  failures.forEach((failure) => console.error(`- ${failure}`));
+  process.exit(1);
+}
+
+console.log("Event context panel check passed");

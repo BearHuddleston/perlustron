@@ -1,0 +1,13 @@
+{"timestamp":"2026-05-10T16:00:00Z","type":"session_meta","payload":{"id":"codex-fixture-session","cwd":"C:\\Fixtures\\perlustron-demo","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex","model_provider":"openai","git":{"commit_hash":"abcdef1234567890","repository_url":"https://example.invalid/perlustron.git"},"dynamic_tools":[{"name":"shell_command","namespace":"functions","deferLoading":false}]}}
+{"timestamp":"2026-05-10T16:00:01Z","type":"turn_context","payload":{"approval_policy":"never","sandbox_policy":{"type":"danger-full-access"},"model":"gpt-fixture"}}
+{"timestamp":"2026-05-10T16:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect the sanitized Perlustron fixture."}]}}
+{"timestamp":"2026-05-10T16:00:03Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"call_ls","arguments":{"command":"rg --files"}}}
+{"timestamp":"2026-05-10T16:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_ls","output":"README.md\nsrc/main.rs\n"}}
+{"timestamp":"2026-05-10T16:00:05Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call_patch","input":"*** Begin Patch\n*** Update File: README.md\n*** End Patch"}}
+{"timestamp":"2026-05-10T16:00:06Z","type":"event_msg","payload":{"type":"patch_apply_end","call_id":"call_patch","stdout":"Success. Updated README.md\n","stderr":"","success":true,"changes":{"README.md":{"type":"update","unified_diff":"@@ -1 +1 @@\n-Old fixture text\n+Sanitized fixture text"}}}}
+{"timestamp":"2026-05-10T16:00:07Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1200,"output_tokens":300,"total_tokens":1500},"model_context_window":100000},"rate_limits":{"primary":{"used_percent":12.5},"secondary":{"used_percent":3.25}}}}
+{"timestamp":"2026-05-10T16:00:08Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The sanitized fixture parsed successfully."}]}}
+{"timestamp":"2026-05-10T16:00:09Z","type":"summary","payload":{"summary":"Fixture session summarized after the parser regression pass.","reason":"fixture coverage"}}
+{"timestamp":"2026-05-10T16:00:10Z","type":"event_msg","payload":{"type":"fixture_unknown_event","detail":"Synthetic unsupported event for parser health."}}
+{"timestamp":"2026-05-10T16:00:11Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="}]}}
+{"timestamp":"2026-05-10T16:00:12Z","type":"malformed-fixture","payload":

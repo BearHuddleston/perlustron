@@ -1,0 +1,76 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run checks
+        run: npm run check
+
+      - name: Run browser smoke checks
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: npm run smoke:browser
+
+      - name: Run CLI smoke checks
+        run: |
+          cargo run --quiet -- --help
+          cargo run --quiet -- --version
+          cargo run --quiet -- --demo --no-open --port 9876 > "$RUNNER_TEMP/perlustron-demo.log" 2>&1 &
+          server_pid=$!
+          cleanup() {
+            if kill -0 "$server_pid" 2>/dev/null; then
+              kill "$server_pid"
+              wait "$server_pid" || true
+            fi
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 20); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/perlustron-demo.log"
+              exit 1
+            fi
+            if curl -fsS "http://127.0.0.1:9876/" > /dev/null && curl -fsS "http://127.0.0.1:9876/app.js" > /dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              cat "$RUNNER_TEMP/perlustron-demo.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          cleanup
+          trap - EXIT
+          cargo run --quiet -- status fixtures/codex-sanitized.jsonl
+          cargo run --quiet -- diff fixtures/codex-sanitized.jsonl fixtures/codex-loop-error.jsonl --redacted
+          cargo run --quiet -- diff fixtures/diff-run-a.jsonl fixtures/diff-run-b.jsonl --format json --redacted -o "$RUNNER_TEMP/perlustron-diff.json"
+          cargo run --quiet -- diff fixtures/diff-run-a.jsonl fixtures/diff-run-b.jsonl --format html --redacted -o "$RUNNER_TEMP/perlustron-diff.html"
+          cargo run --quiet -- insights fixtures/codex-loop-error.jsonl
+          cargo run --quiet -- insights fixtures/codex-loop-error.jsonl --format json --redacted -o "$RUNNER_TEMP/perlustron-insights.json"
+          cargo run --quiet -- unknowns fixtures/codex-sanitized.jsonl
+          cargo run --quiet -- fixture-report fixtures/malformed-mixed-source.jsonl --redacted -o "$RUNNER_TEMP/perlustron-fixture-report.md"
+
+      - name: Run benchmark smoke
+        run: npm run bench:smoke

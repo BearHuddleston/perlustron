@@ -1,0 +1,5 @@
+{"timestamp":"2026-05-11T12:00:00Z","type":"session_meta","payload":{"id":"diff-run-a-fixture","cwd":"C:\\Fixtures\\perlustron-diff","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex","model_provider":"openai"}}
+{"timestamp":"2026-05-11T12:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Compare a stable run."}]}}
+{"timestamp":"2026-05-11T12:00:02Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"diff_rg","arguments":{"command":"rg --files"}}}
+{"timestamp":"2026-05-11T12:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"diff_rg","output":"src/lib.rs\nREADME.md\n"}}
+{"timestamp":"2026-05-11T12:00:04Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Run A finished after listing files."}]}}

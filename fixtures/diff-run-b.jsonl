@@ -1,0 +1,8 @@
+{"timestamp":"2026-05-11T12:00:00Z","type":"session_meta","payload":{"id":"diff-run-b-fixture","cwd":"C:\\Fixtures\\perlustron-diff","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex","model_provider":"openai"}}
+{"timestamp":"2026-05-11T12:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Compare a stable run."}]}}
+{"timestamp":"2026-05-11T12:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"output_tokens":10,"total_tokens":1010},"model_context_window":100000}}}
+{"timestamp":"2026-05-11T12:00:02Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"diff_rg","arguments":{"command":"rg --files"}}}
+{"timestamp":"2026-05-11T12:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"diff_rg","output":"src/lib.rs\nREADME.md\n"}}
+{"timestamp":"2026-05-11T12:00:04Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"diff_patch","input":"*** Begin Patch\n*** Update File: src/lib.rs\n*** End Patch"}}
+{"timestamp":"2026-05-11T12:00:05Z","type":"event_msg","payload":{"type":"patch_apply_end","call_id":"diff_patch","stdout":"Success. Updated src/lib.rs\n","stderr":"","success":true,"changes":{"src/lib.rs":{"type":"update","unified_diff":"@@ -1 +1 @@\n-a\n+b"}}}}
+{"timestamp":"2026-05-11T12:00:06Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Run B edited a file after inserted telemetry."}]}}

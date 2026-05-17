@@ -1,0 +1,4 @@
+{"timestamp":"2026-05-11T10:10:00Z","type":"session_meta","payload":{"id":"codex-missing-tool-result-fixture","cwd":"C:\\Fixtures\\perlustron-missing-tool","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex","model_provider":"openai"}}
+{"timestamp":"2026-05-11T10:10:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Run a command whose result is missing."}]}}
+{"timestamp":"2026-05-11T10:10:02Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"missing_result_call","arguments":{"command":"cargo test --locked"}}}
+{"timestamp":"2026-05-11T10:10:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The tool result is absent from this synthetic fixture."}]}}

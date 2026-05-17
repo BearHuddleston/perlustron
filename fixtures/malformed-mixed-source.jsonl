@@ -1,0 +1,5 @@
+{"timestamp":"2026-05-11T11:30:00Z","type":"session_meta","payload":{"id":"malformed-mixed-source-fixture","cwd":"C:\\Fixtures\\perlustron-malformed","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex"}}
+{"timestamp":"2026-05-11T11:30:01Z","type":"unknown_future_event","payload":{"shape":"synthetic","nested":{"safe":true}}}
+{"timestamp":"2026-05-11T11:30:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Keep malformed and mixed-source records visible."}]}}
+{"timestamp":"2026-05-11T11:30:03Z","type":"user","sessionId":"mixed-claude-shape","message":{"content":[{"type":"text","text":"Claude-shaped record inside mixed fixture."}]}}
+{"timestamp":"2026-05-11T11:30:04Z","type":"malformed-mixed","payload":

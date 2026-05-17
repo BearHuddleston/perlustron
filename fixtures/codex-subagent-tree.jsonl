@@ -1,0 +1,6 @@
+{"timestamp":"2026-05-11T10:20:00Z","type":"session_meta","payload":{"id":"codex-subagent-tree-fixture","cwd":"C:\\Fixtures\\perlustron-subagent","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex","model_provider":"openai"}}
+{"timestamp":"2026-05-11T10:20:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Use a synthetic subagent to inspect context."}]}}
+{"timestamp":"2026-05-11T10:20:02Z","type":"response_item","payload":{"type":"function_call","name":"spawn_agent","call_id":"spawn_tree_1","arguments":{"agent_type":"explorer","message":"Inspect parser context."}}}
+{"timestamp":"2026-05-11T10:20:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"spawn_tree_1","output":{"agent_id":"019e295a-tree-agent","nickname":"Ada"}}}
+{"timestamp":"2026-05-11T10:20:04Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<subagent_notification>\n{\"agent_path\":\"019e295a-tree-agent\",\"status\":{\"completed\":\"Synthetic subagent checked parser and UI context.\"}}\n</subagent_notification>"}]}}
+{"timestamp":"2026-05-11T10:20:05Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Subagent context was linked into the run."}]}}
