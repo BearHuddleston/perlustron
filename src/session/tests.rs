@@ -1218,6 +1218,7 @@ fn cached_unknowns_report_uses_cached_session_graph() {
     store_cached_graph(
         &cache,
         session_cache_key(SessionSource::Codex, &path),
+        &path,
         len,
         modified,
         cached_graph.clone(),
@@ -1241,6 +1242,32 @@ fn cached_unknowns_report_uses_cached_session_graph() {
         report.unknown_event_count,
         cached_graph.parser_health.unknown_event_count
     );
+}
+
+#[test]
+fn cached_session_line_offsets_are_best_effort() {
+    let graph =
+        parse_graph_for_file(SessionSource::Codex, &fixture_path("codex-sanitized.jsonl")).unwrap();
+    assert!(graph.parser_health.image_count > 0);
+    let missing_path = temp_jsonl_path("missing-image-offsets");
+    let _ = fs::remove_file(&missing_path);
+    let cache = Mutex::new(HashMap::new());
+    let key = session_cache_key(SessionSource::Codex, &missing_path);
+
+    store_cached_graph(
+        &cache,
+        key.clone(),
+        &missing_path,
+        graph.processed_byte_length,
+        SystemTime::UNIX_EPOCH,
+        graph,
+    )
+    .unwrap();
+
+    let cached = cache_snapshot(&cache, &key)
+        .unwrap()
+        .expect("cached session");
+    assert!(cached.line_offsets.is_empty());
 }
 
 #[test]
@@ -1270,6 +1297,7 @@ fn cached_trace_diff_uses_cached_session_graphs() {
     store_cached_graph(
         &cache,
         session_cache_key(SessionSource::Codex, &left_path),
+        &left_path,
         left_len,
         left_modified,
         left_graph.clone(),
@@ -1278,6 +1306,7 @@ fn cached_trace_diff_uses_cached_session_graphs() {
     store_cached_graph(
         &cache,
         session_cache_key(SessionSource::Codex, &right_path),
+        &right_path,
         right_len,
         right_modified,
         right_graph.clone(),
@@ -1346,6 +1375,76 @@ fn parses_codex_fixture_graph_and_status() {
     assert_eq!(status.parser_health.unknown_event_count, 1);
     assert!(!status.graph_changed);
     assert!(!status.compaction_in_progress);
+}
+
+#[test]
+fn cached_session_stores_line_offsets_for_large_image_fetches() {
+    let path = temp_jsonl_path("cached-image-offsets");
+    let filler_lines = (0..64)
+        .map(|index| {
+            json!({
+                "timestamp": "2026-05-10T16:04:02.287Z",
+                "type": "event_msg",
+                "payload": { "type": "agent_reasoning_delta", "text": format!("thinking {index}") }
+            })
+            .to_string()
+        })
+        .collect::<Vec<_>>();
+    let image_event_index = filler_lines.len();
+    let image_offset = filler_lines
+        .iter()
+        .map(|line| line.len() + 1)
+        .sum::<usize>() as u64;
+    let image_line = json!({
+        "timestamp": "2026-05-10T16:04:03.287Z",
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "role": "user",
+            "content": [
+                { "type": "input_text", "text": "image prompt" },
+                { "image_url": "data:text/plain;base64,aGVsbG8=" }
+            ]
+        }
+    })
+    .to_string();
+    let contents = filler_lines
+        .into_iter()
+        .chain(std::iter::once(image_line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    fs::write(&path, contents).unwrap();
+
+    let cache = Mutex::new(HashMap::new());
+    let graph = load_session_graph(SessionSource::Codex, &path, &cache).unwrap();
+    let key = session_cache_key(SessionSource::Codex, &path);
+    let cached = cache_snapshot(&cache, &key)
+        .unwrap()
+        .expect("cached session");
+
+    assert_eq!(graph.parser_health.image_count, 1);
+    assert_eq!(graph.prompts[0].images[0].event_index, image_event_index);
+    assert_eq!(
+        cached.line_offsets.get(image_event_index),
+        Some(&image_offset)
+    );
+
+    let image =
+        load_session_image(SessionSource::Codex, &path, image_event_index, 0, &cache).unwrap();
+    assert_eq!(image.mime_type, "text/plain");
+    assert_eq!(image.bytes, b"hello");
+
+    {
+        let mut cache = cache.lock().unwrap();
+        cache.get_mut(&key).unwrap().line_offsets[image_event_index] = 0;
+    }
+    let fallback_image =
+        load_session_image(SessionSource::Codex, &path, image_event_index, 0, &cache).unwrap();
+
+    let _ = fs::remove_file(&path);
+    assert_eq!(fallback_image.mime_type, "text/plain");
+    assert_eq!(fallback_image.bytes, b"hello");
 }
 
 #[test]

@@ -25,9 +25,9 @@ perlustron unknowns path/to/session.jsonl --redacted -o unknowns-redacted.json
 perlustron fixture-report path/to/session.jsonl --redacted -o fixture-report.md
 ```
 
-![Perlustron sanitized demo screenshot](docs/assets/perlustron-demo.png)
+![Perlustron Summary-first sanitized demo screenshot](docs/assets/perlustron-demo.png)
 
-The screenshot above was generated from the bundled sanitized Codex demo with privacy mode enabled. Do not use private logs for screenshots or marketing assets.
+The screenshot above was generated from the bundled sanitized Codex demo in privacy mode on the Summary-first workflow, including inspect-first evidence actions and raw-log shareability cues. Do not use private logs for screenshots or marketing assets.
 
 ## Install
 
@@ -95,6 +95,7 @@ Implemented:
 - Codex and Claude Code JSONL parsing with parser health for unknown and malformed data.
 - Interactive local UI with three default modes: Map for the 3D workflow observatory, Timeline for compact chronological search, and Transcript for readable prompt/assistant/tool/result flow.
 - Secondary Health, Insights, Diff, Raw, and Export utilities for parser diagnostics, debugging, comparison, source inspection, and shareable reports.
+- Copy-safe share summaries and event references that keep structural context while redacting token/path/image/private fixture content; still review before sharing.
 - Interactive Diff mode for selecting Run B, comparing two sessions in-app, opening divergence/event references, and exporting redacted JSON/HTML diff reports.
 - Guided Insights mode with a "What should I inspect first?" queue over logged failures, repeated patterns, suspicious tools, context pressure, files, approval friction, and schema drift.
 - Tool calls/results, file activity, summaries/compactions, token telemetry, embedded image references, MCP/web/search/subagent best-effort support.

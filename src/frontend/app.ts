@@ -12,6 +12,7 @@ import {
   formatSessionModified,
   recordsLabel,
 } from "./utils/format";
+import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
 
 const SIDEBAR_DOT_COLORS = ["green", "blue", "violet", "amber"] as const;
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
@@ -396,6 +397,8 @@ interface TraceInsights {
   approvalFriction: { title: string; severity: string; confidence: string; explanation: string; linkedEvents: InsightEventLink[] }[];
   warnings: string[];
 }
+
+type InspectionQueueItem = TraceInsights["inspectionQueue"][number];
 
 interface InsightEventLink {
   id: string;
@@ -4849,19 +4852,34 @@ function selectedEventReferenceText(): string | null {
   if (!selected) {
     return null;
   }
-  return safeEvidenceReferenceText(selected.node.title, selected.row?.lineNumber, selected.node.eventIndex, selected.node.kind);
+  return copySafeReferenceForModeRow(selected.row ?? modeRowFromSceneNode(selected.node));
 }
 
-function safeEvidenceReferenceText(title: string, lineNumber: number | null | undefined, eventIndex: number | null | undefined, kind: string): string {
-  return [
-    "Perlustron evidence reference",
-    lineNumber ? `line: ${lineNumber}` : null,
-    eventIndex !== null && eventIndex !== undefined ? `event_index: ${eventIndex}` : null,
-    `kind: ${kind}`,
-    `summary: ${compactUiText(title, 180)}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+function copySafeReferenceForModeRow(row: ModeEventRow): string {
+  const current = currentGraph();
+  return copySafeReferenceText({
+    source: sourceLabel(current.source),
+    lineNumber: row.lineNumber,
+    eventIndex: row.eventIndex,
+    kind: [row.role, row.eventType, row.toolName].filter(Boolean).join(" / "),
+    summary: modeRowSafeReferenceSummary(row),
+    parserVersion: current.parserVersion,
+    schemaVersion: current.schemaVersion,
+  });
+}
+
+function modeRowSafeReferenceSummary(row: ModeEventRow): string {
+  return safeReferenceSummary({
+    role: row.role,
+    eventType: row.eventType,
+    toolName: row.toolName,
+    filePath: row.filePath,
+    rawSummary: modeRowDisplaySummary(row),
+  });
+}
+
+function modeRowDisplaySummary(row: ModeEventRow): string {
+  return [row.title, row.detail].filter(Boolean).join(" - ");
 }
 
 function syncEventContextActions(): void {
@@ -4871,7 +4889,7 @@ function syncEventContextActions(): void {
     button.disabled = !hasSelection;
   }
   if (!hasSelection) {
-    streamCopyRef.textContent = "Copy Ref";
+    streamCopyRef.textContent = "Copy Safe Ref";
   }
 }
 
@@ -4885,11 +4903,43 @@ async function copySelectedEventRef(): Promise<void> {
     await navigator.clipboard.writeText(referenceText);
     streamCopyRef.textContent = "Copied";
     window.setTimeout(() => {
-      streamCopyRef.textContent = "Copy Ref";
+      streamCopyRef.textContent = "Copy Safe Ref";
     }, 1200);
   } catch (error) {
     openSyntheticStream("COPY", "Copy failed", errorMessage(error));
   }
+}
+
+function copySelectedSafeReference(): void {
+  const referenceText = selectedEventReferenceText();
+  if (!referenceText) {
+    openSyntheticStream("COPY", "Select an event first", "Open Map or Timeline and select an event before copying a safe reference.");
+    return;
+  }
+  copyText(referenceText, "Copy-safe reference copied");
+}
+
+function copySafeShareSummaryForGraph(current: SessionGraph): string {
+  const shareability = current.shareabilitySummary;
+  const privacy = current.privacySummary;
+  const health = current.parserHealth;
+  return copySafeShareSummaryText({
+    source: sourceLabel(current.source),
+    sessionName: current.ui.sessionName || current.sessionPath || `${sourceLabel(current.source)} session`,
+    totalTurns: current.ui.totalTurns,
+    callCount: current.totals.callCount,
+    fileChangeCount: current.totals.fileChangeCount,
+    latestEventIndex: current.latestEventIndex,
+    parserVersion: current.parserVersion,
+    schemaVersion: current.schemaVersion,
+    cliContext: [current.metadata.originator, current.metadata.cliVersion].filter(Boolean).join(" ") || null,
+    rawLogsSafeToShare: shareability.rawLogsSafeToShare,
+    rawLogCaution: shareability.rawLogCaution,
+    sanitizedGraphNote: shareability.sanitizedGraphNote,
+    redactedFieldCount: health.redactedFieldCount,
+    imageCount: health.imageCount,
+    apiTokenRequired: privacy.apiTokenRequired,
+  });
 }
 
 function openSelectedEventMode(nextMode: AppMode): void {
@@ -5064,13 +5114,12 @@ function renderSummaryModePanel(): void {
       `${sessionName} is a ${sourceLabel(current.source)} trace with ${current.ui.totalTurns.toLocaleString()} turns, ${current.totals.callCount.toLocaleString()} tool calls, and ${current.totals.fileChangeCount.toLocaleString()} file changes.`
     ),
     modeParagraph(
-      `${rawShareStatus}. ${shareability.sanitizedGraphNote || "Sanitized graph data is intended for UI and report sharing after review."}`
+      `${rawShareStatus}. Sanitized graph/export and copy-safe references reduce exposure compared with raw logs, but they still require human judgment before sharing.`
     )
   );
 
   const triage = document.createElement("div");
   triage.className = "summary-triage";
-  const inspectFirst = current.insights.inspectionQueue[0];
   const whatHappened = modeCard("What Happened", [
     `${current.ui.totalTurns.toLocaleString()} turns across ${current.totals.promptCount.toLocaleString()} prompts`,
     `${current.totals.completedCallCount.toLocaleString()} completed tool calls; ${current.totals.fileChangeCount.toLocaleString()} file changes`,
@@ -5083,19 +5132,6 @@ function renderSummaryModePanel(): void {
     modeButton("Read Transcript", () => selectAppMode("transcript"))
   );
   whatHappened.append(whatActions);
-  const inspectCard = modeCard(
-    "Inspect First",
-    inspectFirst
-      ? [`${inspectFirst.severity.toUpperCase()}: ${inspectFirst.title}`, inspectFirst.redactionSafeSummary || inspectFirst.summary]
-      : ["No high-priority findings detected.", "Parser health and raw inspection remain available for audit."]
-  );
-  const inspectActions = document.createElement("div");
-  inspectActions.className = "mode-actions";
-  inspectActions.append(
-    modeButton("Open Insights", () => selectAppMode("insights")),
-    modeButton("Open Evidence", () => focusEventByLine(inspectFirst?.lineNumbers[0], inspectFirst?.title || "Inspection queue", inspectFirst || current.insights))
-  );
-  inspectCard.append(inspectActions);
   const shareCard = modeCard("Safe To Share", [
     rawShareStatus,
     shareability.sanitizedGraphNote || "Sanitized graph data is intended for UI and report sharing after review.",
@@ -5104,11 +5140,12 @@ function renderSummaryModePanel(): void {
   const shareActions = document.createElement("div");
   shareActions.className = "mode-actions";
   shareActions.append(
+    modeButton("Copy Share Summary", () => copyText(copySafeShareSummaryForGraph(current), "Copy-safe share summary copied")),
     modeButton("Open Export", () => selectAppMode("export")),
     modeButton("Audit Raw", () => selectAppMode("raw"))
   );
   shareCard.append(shareActions);
-  triage.append(whatHappened, inspectCard, shareCard);
+  triage.append(whatHappened, renderSummaryInsightQueue(current.insights), shareCard);
 
   const grid = document.createElement("div");
   grid.className = "summary-shell-grid";
@@ -5190,6 +5227,100 @@ function summaryFact(title: string, facts: [string, string][]): HTMLElement {
   return card;
 }
 
+function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
+  const card = modeCard("Inspect First");
+  card.classList.add("summary-insights");
+  const items = insights.inspectionQueue.slice(0, 3);
+  if (!items.length) {
+    card.append(
+      modeParagraph("No high-priority findings detected. Parser health and raw inspection remain available for audit."),
+      summaryInsightActionRow([modeButton("Open Insights", () => selectAppMode("insights")), modeButton("Audit Raw", () => selectAppMode("raw"))])
+    );
+    return card;
+  }
+
+  const intro = modeParagraph("Top queued findings are ready for inspect-first review; each evidence action routes to an existing panel and falls back clearly when no event line is logged.");
+  const list = document.createElement("div");
+  list.className = "summary-insight-list";
+  items.forEach((item, index) => {
+    const row = document.createElement("article");
+    row.className = `summary-insight severity-${item.severity}`;
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${index + 1}. ${item.title}`;
+    const meta = document.createElement("small");
+    meta.textContent = summaryInsightMeta(item);
+    const summary = document.createElement("p");
+    summary.textContent = item.redactionSafeSummary || item.summary;
+    body.append(title, meta, summary);
+
+    const actions = summaryInsightActionRow([
+      modeButton("Open Insights", () => openInsightDetails(item)),
+      modeButton("Timeline Evidence", () => openInsightEvidence(item, "timeline")),
+      modeButton("Transcript Evidence", () => openInsightEvidence(item, "transcript")),
+      modeButton("Raw Evidence", () => openInsightEvidence(item, "raw")),
+    ]);
+    row.append(body, actions);
+    list.append(row);
+  });
+  card.append(intro, list);
+  return card;
+}
+
+function summaryInsightActionRow(buttons: HTMLButtonElement[]): HTMLElement {
+  const actions = document.createElement("div");
+  actions.className = "mode-row-actions";
+  actions.append(...buttons);
+  return actions;
+}
+
+function summaryInsightMeta(item: InspectionQueueItem): string {
+  const line = firstInsightLine(item);
+  const eventLabel = item.eventIds.length ? `${item.eventIds.length.toLocaleString()} linked events` : "no linked event ids";
+  const lineLabel = line ? `line ${line}` : "no event line logged";
+  return [item.severity, item.confidence, item.directness, lineLabel, eventLabel].filter(Boolean).join(" - ");
+}
+
+function firstInsightLine(item: InspectionQueueItem): number | null {
+  return item.lineNumbers.find((line) => Number.isFinite(line) && line > 0) ?? null;
+}
+
+function evidenceRowForInsight(item: InspectionQueueItem): ModeEventRow | null {
+  const rows = modeTimelineRows();
+  const line = firstInsightLine(item);
+  const lineMatch = line ? rows.find((row) => row.lineNumber === line) : null;
+  if (lineMatch) {
+    return lineMatch;
+  }
+  if (!item.eventIds.length) {
+    return null;
+  }
+  const eventIds = new Set(item.eventIds);
+  return rows.find((row) => eventIds.has(row.id) || (row.node ? eventIds.has(row.node.id) : false)) ?? null;
+}
+
+function openInsightDetails(item: InspectionQueueItem): void {
+  selectAppMode("insights");
+  setRawJsonPayload(item);
+  modePanelSummary.textContent = `Queued insight selected - ${item.title}`;
+  const notice = modeEmpty("Selected insight loaded in Raw for audit; use evidence actions to jump into Timeline, Transcript, or Raw rows when line/event data is available.");
+  notice.classList.add("mode-notice");
+  modePanelContent.prepend(notice);
+}
+
+function openInsightEvidence(item: InspectionQueueItem, destination: AppMode): void {
+  const row = evidenceRowForInsight(item);
+  if (row) {
+    focusEventByLine(row.lineNumber, item.title, item, destination);
+    return;
+  }
+  const detail = firstInsightLine(item) || item.eventIds.length
+    ? "Logged evidence did not match a rendered Timeline or Transcript row; showing the queued insight instead."
+    : "No event line is logged for this insight; showing the queued insight instead.";
+  openInsightDetails(item);
+  showEvidenceFallback(item.title, item, detail);
+}
+
 function renderTimelineModePanel(): void {
   const rows = modeTimelineRows();
   populateTimelineFilterOptions(rows);
@@ -5201,6 +5332,10 @@ function renderTimelineModePanel(): void {
     return;
   }
   const fragment = document.createDocumentFragment();
+  const actions = document.createElement("div");
+  actions.className = "mode-actions";
+  actions.append(modeButton("Copy Safe Reference", () => copySelectedSafeReference()));
+  fragment.append(actions);
   visible.forEach((row) => fragment.append(renderModeRow(row)));
   if (filtered.length > visible.length) {
     fragment.append(modeEmpty(`${filtered.length - visible.length} additional events hidden; narrow filters or search to inspect them.`));
@@ -6021,6 +6156,34 @@ async function ensureUnknownsReportLoaded(force = false): Promise<UnknownsReport
   return unknownsReportPromise;
 }
 
+function showEvidenceFallback(title: string, payload: unknown, detail: string): void {
+  const message = `${detail} Insights remains available and Raw is updated with the selected evidence payload.`;
+  setRawJsonPayload(payload);
+  modePanelSummary.textContent = "Evidence fallback";
+  const card = modeCard("Evidence Fallback", [message]);
+  card.classList.add("mode-notice");
+  const actions = document.createElement("div");
+  actions.className = "mode-row-actions";
+  actions.append(
+    modeButton("Open Insights", () => {
+      selectAppMode("insights");
+      setRawJsonPayload(payload);
+    }),
+    modeButton("Audit Raw", () => {
+      selectAppMode("raw");
+      showEvidenceFallback(title, payload, detail);
+    })
+  );
+  card.append(actions);
+  if (activeAppMode === "raw") {
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(payload ?? {}, null, 2);
+    modePanelContent.replaceChildren(card, pre);
+    return;
+  }
+  modePanelContent.prepend(card);
+}
+
 function focusEventByLine(lineNumber: number | null | undefined, title: string, payload: unknown, destination: AppMode = "raw"): void {
   if (lineNumber) {
     const row = modeTimelineRows().find((candidate) => candidate.lineNumber === lineNumber);
@@ -6038,8 +6201,10 @@ function focusEventByLine(lineNumber: number | null | undefined, title: string, 
   if (destination !== "map") {
     selectAppMode(destination);
   }
-  openSyntheticStream("RAW", title, JSON.stringify(payload, null, 2));
-  setRawJsonPayload(payload);
+  const detail = lineNumber
+    ? `Line ${lineNumber} is logged for ${title}, but no rendered Timeline or Transcript row is available.`
+    : "No event line is logged for this insight or evidence reference; showing fallback payload instead.";
+  showEvidenceFallback(title, payload, detail);
 }
 
 function parserHealthSummaryText(current: SessionGraph): string {

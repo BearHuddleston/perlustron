@@ -1314,6 +1314,70 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+.summary-insights {
+  grid-column: span 2;
+}
+
+.summary-insight-list {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-insight {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  padding: 10px 0 10px 10px;
+  border-left: 2px solid rgba(57, 210, 230, 0.28);
+  border-bottom: 1px solid rgba(184, 194, 206, 0.1);
+}
+
+.summary-insight:last-child {
+  border-bottom: 0;
+}
+
+.summary-insight strong {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.summary-insight small,
+.summary-insight p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.summary-insight p {
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+.summary-insight.severity-high {
+  border-left-color: var(--red);
+}
+
+.summary-insight.severity-warning {
+  border-left-color: var(--amber);
+}
+
+.summary-insight.severity-info {
+  border-left-color: var(--cyan);
+}
+
+.mode-notice {
+  margin-bottom: 12px;
+  border-color: rgba(245, 184, 65, 0.28);
+  background: rgba(245, 184, 65, 0.055);
+}
+
+@media (max-width: 920px) {
+  .summary-insights {
+    grid-column: auto;
+  }
+}
+
 .mode-card {
   min-width: 0;
   padding: 14px;

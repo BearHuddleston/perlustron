@@ -10,7 +10,7 @@
     "bench:smoke": "cargo run --quiet -- bench --generate 250 --append-lines 25 --max-full-ms 1000 --max-status-ms 1000 --max-append-ms 1000",
     "smoke:browser": "npm run build:frontend && node scripts/smoke-browser.mjs",
     "offline:check": "node scripts/check-offline-assets.mjs",
-    "ui:check": "node scripts/check-event-context-panel.mjs && node scripts/check-format-utils.mjs && node scripts/check-summary-mode-shell.mjs",
+    "ui:check": "node scripts/check-event-context-panel.mjs && node scripts/check-format-utils.mjs && node scripts/check-summary-mode-shell.mjs && node scripts/check-copy-safe-share.mjs",
     "workflow:check": "node scripts/check-ci-workflow.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "npm run typecheck && npm run offline:check && npm run ui:check && npm run workflow:check && cargo fmt --check && cargo test && cargo clippy --all-targets -- -D warnings"
