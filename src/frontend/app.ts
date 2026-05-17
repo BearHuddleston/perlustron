@@ -397,6 +397,8 @@ interface TraceInsights {
   warnings: string[];
 }
 
+type InspectionQueueItem = TraceInsights["inspectionQueue"][number];
+
 interface InsightEventLink {
   id: string;
   lineNumber: number;
@@ -5070,7 +5072,6 @@ function renderSummaryModePanel(): void {
 
   const triage = document.createElement("div");
   triage.className = "summary-triage";
-  const inspectFirst = current.insights.inspectionQueue[0];
   const whatHappened = modeCard("What Happened", [
     `${current.ui.totalTurns.toLocaleString()} turns across ${current.totals.promptCount.toLocaleString()} prompts`,
     `${current.totals.completedCallCount.toLocaleString()} completed tool calls; ${current.totals.fileChangeCount.toLocaleString()} file changes`,
@@ -5083,19 +5084,6 @@ function renderSummaryModePanel(): void {
     modeButton("Read Transcript", () => selectAppMode("transcript"))
   );
   whatHappened.append(whatActions);
-  const inspectCard = modeCard(
-    "Inspect First",
-    inspectFirst
-      ? [`${inspectFirst.severity.toUpperCase()}: ${inspectFirst.title}`, inspectFirst.redactionSafeSummary || inspectFirst.summary]
-      : ["No high-priority findings detected.", "Parser health and raw inspection remain available for audit."]
-  );
-  const inspectActions = document.createElement("div");
-  inspectActions.className = "mode-actions";
-  inspectActions.append(
-    modeButton("Open Insights", () => selectAppMode("insights")),
-    modeButton("Open Evidence", () => focusEventByLine(inspectFirst?.lineNumbers[0], inspectFirst?.title || "Inspection queue", inspectFirst || current.insights))
-  );
-  inspectCard.append(inspectActions);
   const shareCard = modeCard("Safe To Share", [
     rawShareStatus,
     shareability.sanitizedGraphNote || "Sanitized graph data is intended for UI and report sharing after review.",
@@ -5108,7 +5096,7 @@ function renderSummaryModePanel(): void {
     modeButton("Audit Raw", () => selectAppMode("raw"))
   );
   shareCard.append(shareActions);
-  triage.append(whatHappened, inspectCard, shareCard);
+  triage.append(whatHappened, renderSummaryInsightQueue(current.insights), shareCard);
 
   const grid = document.createElement("div");
   grid.className = "summary-shell-grid";
@@ -5188,6 +5176,100 @@ function summaryFact(title: string, facts: [string, string][]): HTMLElement {
   });
   card.append(heading, list);
   return card;
+}
+
+function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
+  const card = modeCard("Inspect First");
+  card.classList.add("summary-insights");
+  const items = insights.inspectionQueue.slice(0, 3);
+  if (!items.length) {
+    card.append(
+      modeParagraph("No high-priority findings detected. Parser health and raw inspection remain available for audit."),
+      summaryInsightActionRow([modeButton("Open Insights", () => selectAppMode("insights")), modeButton("Audit Raw", () => selectAppMode("raw"))])
+    );
+    return card;
+  }
+
+  const intro = modeParagraph("Top queued findings are ready for inspect-first review; each evidence action routes to an existing panel and falls back clearly when no event line is logged.");
+  const list = document.createElement("div");
+  list.className = "summary-insight-list";
+  items.forEach((item, index) => {
+    const row = document.createElement("article");
+    row.className = `summary-insight severity-${item.severity}`;
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${index + 1}. ${item.title}`;
+    const meta = document.createElement("small");
+    meta.textContent = summaryInsightMeta(item);
+    const summary = document.createElement("p");
+    summary.textContent = item.redactionSafeSummary || item.summary;
+    body.append(title, meta, summary);
+
+    const actions = summaryInsightActionRow([
+      modeButton("Open Insights", () => openInsightDetails(item)),
+      modeButton("Timeline Evidence", () => openInsightEvidence(item, "timeline")),
+      modeButton("Transcript Evidence", () => openInsightEvidence(item, "transcript")),
+      modeButton("Raw Evidence", () => openInsightEvidence(item, "raw")),
+    ]);
+    row.append(body, actions);
+    list.append(row);
+  });
+  card.append(intro, list);
+  return card;
+}
+
+function summaryInsightActionRow(buttons: HTMLButtonElement[]): HTMLElement {
+  const actions = document.createElement("div");
+  actions.className = "mode-row-actions";
+  actions.append(...buttons);
+  return actions;
+}
+
+function summaryInsightMeta(item: InspectionQueueItem): string {
+  const line = firstInsightLine(item);
+  const eventLabel = item.eventIds.length ? `${item.eventIds.length.toLocaleString()} linked events` : "no linked event ids";
+  const lineLabel = line ? `line ${line}` : "no event line logged";
+  return [item.severity, item.confidence, item.directness, lineLabel, eventLabel].filter(Boolean).join(" - ");
+}
+
+function firstInsightLine(item: InspectionQueueItem): number | null {
+  return item.lineNumbers.find((line) => Number.isFinite(line) && line > 0) ?? null;
+}
+
+function evidenceRowForInsight(item: InspectionQueueItem): ModeEventRow | null {
+  const rows = modeTimelineRows();
+  const line = firstInsightLine(item);
+  const lineMatch = line ? rows.find((row) => row.lineNumber === line) : null;
+  if (lineMatch) {
+    return lineMatch;
+  }
+  if (!item.eventIds.length) {
+    return null;
+  }
+  const eventIds = new Set(item.eventIds);
+  return rows.find((row) => eventIds.has(row.id) || (row.node ? eventIds.has(row.node.id) : false)) ?? null;
+}
+
+function openInsightDetails(item: InspectionQueueItem): void {
+  selectAppMode("insights");
+  setRawJsonPayload(item);
+  modePanelSummary.textContent = `Queued insight selected - ${item.title}`;
+  const notice = modeEmpty("Selected insight loaded in Raw for audit; use evidence actions to jump into Timeline, Transcript, or Raw rows when line/event data is available.");
+  notice.classList.add("mode-notice");
+  modePanelContent.prepend(notice);
+}
+
+function openInsightEvidence(item: InspectionQueueItem, destination: AppMode): void {
+  const row = evidenceRowForInsight(item);
+  if (row) {
+    focusEventByLine(row.lineNumber, item.title, item, destination);
+    return;
+  }
+  const detail = firstInsightLine(item) || item.eventIds.length
+    ? "Logged evidence did not match a rendered Timeline or Transcript row; showing the queued insight instead."
+    : "No event line is logged for this insight; showing the queued insight instead.";
+  openInsightDetails(item);
+  showEvidenceFallback(item.title, item, detail);
 }
 
 function renderTimelineModePanel(): void {
@@ -6021,6 +6103,34 @@ async function ensureUnknownsReportLoaded(force = false): Promise<UnknownsReport
   return unknownsReportPromise;
 }
 
+function showEvidenceFallback(title: string, payload: unknown, detail: string): void {
+  const message = `${detail} Insights remains available and Raw is updated with the selected evidence payload.`;
+  setRawJsonPayload(payload);
+  modePanelSummary.textContent = "Evidence fallback";
+  const card = modeCard("Evidence Fallback", [message]);
+  card.classList.add("mode-notice");
+  const actions = document.createElement("div");
+  actions.className = "mode-row-actions";
+  actions.append(
+    modeButton("Open Insights", () => {
+      selectAppMode("insights");
+      setRawJsonPayload(payload);
+    }),
+    modeButton("Audit Raw", () => {
+      selectAppMode("raw");
+      showEvidenceFallback(title, payload, detail);
+    })
+  );
+  card.append(actions);
+  if (activeAppMode === "raw") {
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(payload ?? {}, null, 2);
+    modePanelContent.replaceChildren(card, pre);
+    return;
+  }
+  modePanelContent.prepend(card);
+}
+
 function focusEventByLine(lineNumber: number | null | undefined, title: string, payload: unknown, destination: AppMode = "raw"): void {
   if (lineNumber) {
     const row = modeTimelineRows().find((candidate) => candidate.lineNumber === lineNumber);
@@ -6038,8 +6148,10 @@ function focusEventByLine(lineNumber: number | null | undefined, title: string, 
   if (destination !== "map") {
     selectAppMode(destination);
   }
-  openSyntheticStream("RAW", title, JSON.stringify(payload, null, 2));
-  setRawJsonPayload(payload);
+  const detail = lineNumber
+    ? `Line ${lineNumber} is logged for ${title}, but no rendered Timeline or Transcript row is available.`
+    : "No event line is logged for this insight or evidence reference; showing fallback payload instead.";
+  showEvidenceFallback(title, payload, detail);
 }
 
 function parserHealthSummaryText(current: SessionGraph): string {
