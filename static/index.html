@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=135927440457764" />
+    <link rel="stylesheet" href="/styles.css?v=247175797353994" />
   </head>
   <body>
     <main id="app">
@@ -15,7 +15,6 @@
           <div class="brand-mark" aria-hidden="true"></div>
           <strong>Perlustron</strong>
           <span class="version">v0.3.0</span>
-          <span class="local-pill"><span></span>LOCAL</span>
         </div>
         <label class="search-box">
           <span aria-hidden="true"></span>
@@ -132,20 +131,20 @@
                 <div class="event-popup-actions">
                   <button id="prev-event" type="button" title="Previous">&lt;</button>
                   <button id="next-event" type="button" title="Next">&gt;</button>
-                  <button id="stream-minimize" type="button" title="Minimize context" aria-label="Collapse context">_</button>
+                  <button id="stream-minimize" type="button" title="Minimize context" aria-label="Collapse context">-</button>
                   <button id="stream-close" type="button" title="Clear selection">X</button>
                 </div>
               </div>
               <div class="context-meta">
-                <div>
-                  <span>Kind</span>
-                  <strong id="stream-kind">TURN</strong>
+                <div class="context-meta-title">
+                  <span id="stream-title-label">Selection</span>
+                  <strong id="stream-kind">Select a turn</strong>
                 </div>
-                <div>
+                <div class="context-meta-detail">
                   <span>Position</span>
                   <strong id="turn-number">Latest context</strong>
                 </div>
-                <div>
+                <div class="context-meta-detail">
                   <span>Time</span>
                   <strong id="turn-timestamp">Live context</strong>
                 </div>
@@ -159,7 +158,7 @@
               <div class="event-summary">
                 <h2 id="stream-title">Select a turn</h2>
                 <div id="stream-images" class="stream-images"></div>
-                <pre id="stream-data">Click an object to inspect its live JSONL record.</pre>
+                <div id="stream-data">Click an object to inspect its live JSONL record.</div>
               </div>
             </div>
             <div class="viewport-controls" aria-label="Viewport controls">
@@ -179,6 +178,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v135927440457764.js"></script>
+    <script type="module" src="/app-v247175797353994.js"></script>
   </body>
 </html>

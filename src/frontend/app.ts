@@ -809,12 +809,37 @@ function timestampForNode(node: SceneNode): string {
   return node.source.timestamp || "Live context";
 }
 
+function formatEventContextTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.valueOf())) {
+    return timestamp;
+  }
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function setEventContextTimestamp(timestamp: string): void {
+  turnTimestamp.textContent = formatEventContextTimestamp(timestamp);
+  turnTimestamp.title = timestamp;
+}
+
+function formatEventContextTitle(title: string): string {
+  const headingText = title.replace(/^\s{0,3}#{1,6}\s+/, "").trim();
+  return (headingText ? headingText.replace(/:$/, "").trim() : title) || title;
+}
+
+function setEventContextTitle(title: string, label = "Selection"): void {
+  streamTitleLabel.textContent = label;
+  streamKind.textContent = formatEventContextTitle(title);
+  streamKind.title = title;
+}
+
 function imagesForNode(node: SceneNode): ContentImageRef[] {
   return node.type === "prompt" ? node.source.images : [];
 }
 
 const canvas = queryRequired<HTMLCanvasElement>("#space");
 const metadataList = queryRequired<HTMLElement>("#metadata-list");
+const streamTitleLabel = queryRequired<HTMLElement>("#stream-title-label");
 const streamKind = queryRequired<HTMLElement>("#stream-kind");
 const streamTitle = queryRequired<HTMLElement>("#stream-title");
 const streamData = queryRequired<HTMLElement>("#stream-data");
@@ -4309,7 +4334,9 @@ function openStream(
     showEventPopup();
   }
   syncInstanceColors();
-  streamKind.textContent = node.kind.toUpperCase();
+  contextEventTitle.textContent = node.kind.toUpperCase();
+  eventPopup.classList.toggle("prompt-context", node.type === "prompt");
+  setEventContextTitle(node.type === "prompt" ? "" : node.title, "Selection");
   turnNumber.textContent =
     node.type === "prompt"
       ? `PROMPT ${node.promptIndex + 1}`
@@ -4320,33 +4347,39 @@ function openStream(
           : node.type === "message"
             ? `ASSISTANT ${node.eventIndex}`
             : `TURN ${node.eventIndex}`;
-  turnTimestamp.textContent = timestampForNode(node);
-  contextEventTitle.textContent = node.title;
+  setEventContextTimestamp(timestampForNode(node));
   streamTitle.textContent = node.title;
   setRawModePayload(node.source);
   syncEventContextActions();
   renderStreamImages(imagesForNode(node));
   const payload = node.detail || node.body || node.title;
   if (restartStream) {
-    typeStream(payload);
+    if (node.type === "prompt") {
+      renderStreamMarkdown(payload);
+    } else {
+      typeStream(payload);
+    }
   }
 }
 
-function typeStream(payload: string): void {
+function stopStreamTimer(): void {
   if (streamTimer) {
     clearInterval(streamTimer);
   }
+  streamTimer = null;
+}
+
+function typeStream(payload: string): void {
+  stopStreamTimer();
 
   const lines = payload.split("\n");
   let index = 0;
+  streamData.classList.remove("stream-markdown");
   streamData.textContent = "";
   streamTimer = setInterval(() => {
     const nextLines = lines.slice(index, index + 2);
     if (!nextLines.length) {
-      if (streamTimer) {
-        clearInterval(streamTimer);
-      }
-      streamTimer = null;
+      stopStreamTimer();
       return;
     }
     streamData.textContent += `${nextLines.join("\n")}\n`;
@@ -4354,13 +4387,311 @@ function typeStream(payload: string): void {
   }, 34);
 }
 
+function renderStreamMarkdown(markdown: string): void {
+  stopStreamTimer();
+  streamData.classList.add("stream-markdown");
+  streamData.replaceChildren(renderAnnotationPrompt(markdown) ?? renderMarkdownFragment(markdown));
+}
+
+const ANNOTATION_FIELD_LABELS = [
+  "File",
+  "Side",
+  "Lines",
+  "Node position",
+  "Page URL",
+  "Frame",
+  "Target",
+  "Target selector",
+  "Target path",
+  "Comment",
+] as const;
+
+type AnnotationField = (typeof ANNOTATION_FIELD_LABELS)[number];
+
+const ANNOTATION_META_ROWS: ReadonlyArray<{
+  label: string;
+  field: AnnotationField;
+  asLink?: boolean;
+}> = [
+  { label: "File", field: "File" },
+  { label: "Side", field: "Side" },
+  { label: "Lines", field: "Lines" },
+  { label: "Node", field: "Node position" },
+  { label: "Target", field: "Target" },
+  { label: "Selector", field: "Target selector" },
+  { label: "Path", field: "Target path" },
+  { label: "Page", field: "Page URL", asLink: true },
+  { label: "Frame", field: "Frame" },
+];
+
+interface PromptAnnotation {
+  number: string;
+  fields: Map<AnnotationField, string>;
+}
+
+function renderAnnotationPrompt(markdown: string): DocumentFragment | null {
+  if (!/^#\s+Diff comments:\s*$/m.test(markdown)) {
+    return null;
+  }
+
+  const comments = parsePromptAnnotations(markdown);
+  if (!comments.length) {
+    return null;
+  }
+
+  const fragment = document.createDocumentFragment();
+  const section = document.createElement("section");
+  section.className = "annotation-prompt";
+
+  const heading = document.createElement("h1");
+  heading.textContent = "Diff comments";
+  section.append(heading);
+
+  const browserUrl = markdown.match(/^- Current URL:\s*(.+)$/m)?.[1]?.trim();
+  comments.forEach((comment) => {
+    const article = document.createElement("article");
+    article.className = "annotation-item";
+
+    const marker = document.createElement("span");
+    marker.className = "annotation-marker";
+    marker.textContent = `Comment ${comment.number}`;
+    article.append(marker);
+
+    const commentBody = document.createElement("p");
+    commentBody.className = "annotation-comment";
+    commentBody.textContent = annotationValue(comment, "Comment") || "No comment text.";
+    article.append(commentBody);
+
+    const meta = document.createElement("dl");
+    meta.className = "annotation-meta";
+    ANNOTATION_META_ROWS.forEach((row) => {
+      appendAnnotationMeta(meta, row.label, annotationValue(comment, row.field), row.asLink);
+    });
+    appendAnnotationMeta(meta, "Current", browserUrl, true);
+    article.append(meta);
+
+    section.append(article);
+  });
+
+  fragment.append(section);
+  return fragment;
+}
+
+function parsePromptAnnotations(markdown: string): PromptAnnotation[] {
+  const normalized = markdown.replace(/\r\n?/g, "\n");
+  const starts = [...normalized.matchAll(/^##\s+Comment\s+(\d+)\s*$/gm)];
+  return starts.map((start, index) => {
+    const nextStart = starts[index + 1]?.index ?? normalized.search(/\n# In app browser:/);
+    const end = nextStart >= 0 ? nextStart : normalized.length;
+    const block = normalized.slice((start.index ?? 0) + start[0].length, end);
+    return {
+      number: start[1],
+      fields: parseAnnotationFields(block),
+    };
+  });
+}
+
+function parseAnnotationFields(block: string): Map<AnnotationField, string> {
+  const fields = new Map<AnnotationField, string>();
+  const lines = block.split("\n");
+  let index = 0;
+  while (index < lines.length) {
+    const match = lines[index].match(/^([A-Z][A-Za-z ]+):\s*(.*)$/);
+    const label = match?.[1];
+    if (!label || !isAnnotationField(label)) {
+      index += 1;
+      continue;
+    }
+
+    const inlineValue = match[2].trim();
+    if (inlineValue) {
+      fields.set(label, inlineValue);
+      index += 1;
+      continue;
+    }
+
+    const valueLines: string[] = [];
+    index += 1;
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!line.trim() || /^#{1,6}\s+/.test(line) || isAnnotationFieldStart(line)) {
+        break;
+      }
+      valueLines.push(line.trim());
+      index += 1;
+    }
+    fields.set(label, valueLines.join("\n").trim());
+  }
+  return fields;
+}
+
+function isAnnotationField(label: string): label is AnnotationField {
+  return (ANNOTATION_FIELD_LABELS as readonly string[]).includes(label);
+}
+
+function isAnnotationFieldStart(line: string): boolean {
+  const match = line.match(/^([A-Z][A-Za-z ]+):/);
+  return Boolean(match && isAnnotationField(match[1]));
+}
+
+function annotationValue(annotation: PromptAnnotation, field: AnnotationField): string {
+  return annotation.fields.get(field) ?? "";
+}
+
+function appendAnnotationMeta(list: HTMLDListElement, label: string, value: string | undefined, asLink = false): void {
+  const text = value?.trim();
+  if (!text) {
+    return;
+  }
+
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const description = document.createElement("dd");
+  if (asLink && /^https?:\/\//.test(text)) {
+    const link = document.createElement("a");
+    link.href = text;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = text;
+    description.append(link);
+  } else {
+    description.textContent = text;
+  }
+  list.append(term, description);
+}
+
+function renderMarkdownFragment(markdown: string): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  let index = 0;
+
+  const appendInline = (element: HTMLElement, text: string): void => {
+    element.innerHTML = inlineMarkdownHtml(text);
+  };
+
+  const appendInlineLines = (element: HTMLElement, lineParts: string[]): void => {
+    element.innerHTML = lineParts.map((part) => inlineMarkdownHtml(part.trim())).join("<br>");
+  };
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = line.match(/^\s*```(\S*)\s*$/);
+    if (fence) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```\s*$/.test(lines[index] ?? "")) {
+        codeLines.push(lines[index] ?? "");
+        index += 1;
+      }
+      if (index < lines.length) {
+        index += 1;
+      }
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      if (fence[1]) {
+        code.dataset.language = fence[1];
+      }
+      code.textContent = codeLines.join("\n");
+      pre.append(code);
+      fragment.append(pre);
+      continue;
+    }
+
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const level = Math.min(6, heading[1].length);
+      const element = document.createElement(`h${level}`);
+      appendInline(element, heading[2]);
+      fragment.append(element);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      const list = document.createElement("ul");
+      while (index < lines.length) {
+        const item = (lines[index] ?? "").match(/^\s*[-*]\s+(.+)$/);
+        if (!item) {
+          break;
+        }
+        const li = document.createElement("li");
+        appendInline(li, item[1]);
+        list.append(li);
+        index += 1;
+      }
+      fragment.append(list);
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const list = document.createElement("ol");
+      while (index < lines.length) {
+        const item = (lines[index] ?? "").match(/^\s*\d+\.\s+(.+)$/);
+        if (!item) {
+          break;
+        }
+        const li = document.createElement("li");
+        appendInline(li, item[1]);
+        list.append(li);
+        index += 1;
+      }
+      fragment.append(list);
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (index < lines.length) {
+      const paragraphLine = lines[index] ?? "";
+      if (
+        !paragraphLine.trim() ||
+        /^\s*```/.test(paragraphLine) ||
+        /^\s{0,3}#{1,6}\s+/.test(paragraphLine) ||
+        /^\s*[-*]\s+/.test(paragraphLine) ||
+        /^\s*\d+\.\s+/.test(paragraphLine)
+      ) {
+        break;
+      }
+      paragraphLines.push(paragraphLine.trim());
+      index += 1;
+    }
+    const paragraph = document.createElement("p");
+    appendInlineLines(paragraph, paragraphLines);
+    fragment.append(paragraph);
+  }
+
+  if (!fragment.childNodes.length) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = "";
+    fragment.append(paragraph);
+  }
+  return fragment;
+}
+
+function inlineMarkdownHtml(text: string): string {
+  const codeSpans: string[] = [];
+  let html = escapeHtml(text).replace(/`([^`]+)`/g, (_match, code: string) => {
+    const token = `@@CODE_SPAN_${codeSpans.length}@@`;
+    codeSpans.push(`<code>${code}</code>`);
+    return token;
+  });
+
+  html = html.replace(/\[([^\]\n]+)\]\(((?:https?:\/\/|\/)[^\s)]+)\)/g, (_match, label: string, href: string) => {
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|[^\*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  html = html.replace(/@@CODE_SPAN_(\d+)@@/g, (_match, index: string) => codeSpans[Number(index)] ?? "");
+  return html;
+}
+
 function renderStreamImages(images: ContentImageRef[] = []): void {
   streamImages.replaceChildren();
   if (!images.length) {
-    const placeholder = document.createElement("div");
-    placeholder.className = "stream-image-placeholder";
-    placeholder.textContent = "No event media available; inspect Timeline, Transcript, or Raw for auditable evidence.";
-    streamImages.append(placeholder);
     return;
   }
 
@@ -4592,11 +4923,13 @@ function resetEventContext(): void {
   hideEventPopup();
   const current = graph;
   const latestPrompt = current?.prompts.at(-1);
-  streamKind.textContent = "SESSION";
+  eventPopup.classList.remove("prompt-context");
+  contextEventTitle.textContent = "SESSION";
+  setEventContextTitle(current?.ui.sessionName || "Session overview", "Session");
   turnNumber.textContent = current ? `${current.totals.promptCount} prompts` : "Loading";
-  turnTimestamp.textContent = current?.lastModifiedAt || "Live context";
-  contextEventTitle.textContent = current?.ui.sessionName || "Session overview";
+  setEventContextTimestamp(current?.lastModifiedAt || "Live context");
   streamTitle.textContent = latestPrompt?.title || current?.ui.sessionName || "Session overview";
+  streamData.classList.remove("stream-markdown");
   streamData.textContent = sessionOverviewText();
   renderStreamImages();
 }
@@ -4762,7 +5095,7 @@ function setEventContextCollapsed(collapsed: boolean): void {
 
 function syncEventContextCollapse(): void {
   eventPopup.classList.toggle("compact", eventContextCollapsed);
-  streamMinimize.textContent = eventContextCollapsed ? "+" : "_";
+  streamMinimize.textContent = eventContextCollapsed ? "+" : "-";
   streamMinimize.title = eventContextCollapsed ? "Expand context" : "Minimize context";
   streamMinimize.setAttribute("aria-label", eventContextCollapsed ? "Expand context" : "Collapse context");
   streamMinimize.setAttribute("aria-expanded", String(!eventContextCollapsed));
@@ -6868,10 +7201,11 @@ function openSyntheticStream(kind: string, title: string, body: string): void {
   clearRawModePayload();
   showEventPopup();
   syncInstanceColors();
-  streamKind.textContent = kind;
+  eventPopup.classList.remove("prompt-context");
+  contextEventTitle.textContent = kind;
+  setEventContextTitle(title, "Selection");
   turnNumber.textContent = "Control surface";
-  turnTimestamp.textContent = new Date().toLocaleTimeString();
-  contextEventTitle.textContent = title;
+  setEventContextTimestamp(new Date().toISOString());
   streamTitle.textContent = title;
   syncEventContextActions();
   renderStreamImages();
