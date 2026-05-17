@@ -137,25 +137,38 @@ fn list_session_options(
     explicit_paths: &HashMap<SessionSource, PathBuf>,
     selected_session: Option<&str>,
 ) -> Result<SessionListResponse> {
+    let root_result = sessions_root(source);
+    let mut candidates = Vec::new();
+    if let Ok(root) = &root_result {
+        collect_session_jsonl_candidates(root, &mut candidates);
+    }
+
     let selected_path = if let Some(session) = selected_session.filter(|session| !session.is_empty())
     {
         resolve_requested_session_path(source, explicit_paths, session)?
+    } else if let Some(path) = explicit_paths.get(&source) {
+        path.clone()
     } else {
-        resolve_session_path(source, explicit_paths)?.path
+        let root = root_result?;
+        latest_session_candidate(&candidates)
+            .map(|candidate| candidate.path.clone())
+            .ok_or_else(|| {
+                anyhow!(
+                    "no {} session jsonl files found under {}",
+                    source.display_name(),
+                    root.display()
+                )
+            })?
     };
-    let mut paths = Vec::new();
 
-    if let Ok(root) = sessions_root(source) {
-        collect_session_jsonl_paths(&root, &mut paths);
-    }
     if let Some(path) = explicit_paths.get(&source) {
-        push_unique_session_path(&mut paths, path.clone());
+        push_unique_session_candidate(&mut candidates, path.clone(), false);
     }
-    push_unique_session_path(&mut paths, selected_path.clone());
+    push_unique_session_candidate(&mut candidates, selected_path.clone(), false);
 
-    let mut sessions = paths
-        .into_iter()
-        .filter_map(|path| session_list_item(source, &path, explicit_paths).ok())
+    let mut sessions = candidates
+        .iter()
+        .map(|candidate| session_list_item(source, candidate, explicit_paths))
         .collect::<Vec<_>>();
     sessions.sort_by(|left, right| {
         right
@@ -182,7 +195,14 @@ fn list_session_options(
     })
 }
 
-fn collect_session_jsonl_paths(root: &Path, paths: &mut Vec<PathBuf>) {
+#[derive(Debug, Clone)]
+struct SessionListCandidate {
+    path: PathBuf,
+    modified: SystemTime,
+    byte_length: u64,
+}
+
+fn collect_session_jsonl_candidates(root: &Path, candidates: &mut Vec<SessionListCandidate>) {
     let mut stack = vec![root.to_path_buf()];
 
     while let Some(dir) = stack.pop() {
@@ -198,44 +218,77 @@ fn collect_session_jsonl_paths(root: &Path, paths: &mut Vec<PathBuf>) {
 
             if metadata.is_dir() {
                 stack.push(path);
-            } else if metadata.is_file()
-                && metadata.len() > 0
-                && path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
-            {
-                paths.push(path);
+            } else if let Some(candidate) = session_list_candidate(path, metadata, true) {
+                candidates.push(candidate);
             }
         }
     }
 }
 
-fn push_unique_session_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
-    if !paths.iter().any(|existing| same_file_path(existing, &path)) {
-        paths.push(path);
+fn push_unique_session_candidate(
+    candidates: &mut Vec<SessionListCandidate>,
+    path: PathBuf,
+    require_non_empty: bool,
+) {
+    if candidates
+        .iter()
+        .any(|existing| same_file_path(&existing.path, &path))
+    {
+        return;
     }
+
+    if let Ok(metadata) = fs::metadata(&path)
+        && let Some(candidate) = session_list_candidate(path, metadata, require_non_empty)
+    {
+        candidates.push(candidate);
+    }
+}
+
+fn session_list_candidate(
+    path: PathBuf,
+    metadata: fs::Metadata,
+    require_non_empty: bool,
+) -> Option<SessionListCandidate> {
+    if !metadata.is_file()
+        || (require_non_empty && metadata.len() == 0)
+        || path.extension().and_then(|ext| ext.to_str()) != Some("jsonl")
+    {
+        return None;
+    }
+
+    Some(SessionListCandidate {
+        path,
+        modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+        byte_length: metadata.len(),
+    })
+}
+
+fn latest_session_candidate(
+    candidates: &[SessionListCandidate],
+) -> Option<&SessionListCandidate> {
+    candidates.iter().max_by_key(|candidate| candidate.modified)
 }
 
 fn session_list_item(
     source: SessionSource,
-    path: &Path,
+    candidate: &SessionListCandidate,
     explicit_paths: &HashMap<SessionSource, PathBuf>,
-) -> Result<SessionListItem> {
-    let metadata =
-        fs::metadata(path).with_context(|| format!("failed to stat {}", path.display()))?;
-    let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+) -> SessionListItem {
+    let path = &candidate.path;
     let label = session_option_label(path);
     let detail = session_option_detail(path);
-    Ok(SessionListItem {
+    SessionListItem {
         source: source.as_str().to_owned(),
         path: path.display().to_string(),
         label,
         detail,
-        last_modified_at: system_time_to_rfc3339(modified),
-        byte_length: metadata.len(),
-        is_live: is_recent(modified),
+        last_modified_at: system_time_to_rfc3339(candidate.modified),
+        byte_length: candidate.byte_length,
+        is_live: is_recent(candidate.modified),
         explicit: explicit_paths
             .get(&source)
             .is_some_and(|explicit| same_file_path(explicit, path)),
-    })
+    }
 }
 
 fn session_option_label(path: &Path) -> String {
