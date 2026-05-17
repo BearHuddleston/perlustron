@@ -382,8 +382,15 @@ async fn session_image_handler(
             return api_error_response(StatusCode::BAD_REQUEST, error);
         }
     };
+    let cache = state.cache.clone();
     let loaded = tokio::task::spawn_blocking(move || {
-        load_session_image(resolved.source, &resolved.path, event_index, image_index)
+        load_session_image(
+            resolved.source,
+            &resolved.path,
+            event_index,
+            image_index,
+            cache.as_ref(),
+        )
     })
     .await;
 
