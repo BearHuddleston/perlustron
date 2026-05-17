@@ -1727,8 +1727,7 @@ kbd {
 
 .panel-heading,
 .context-meta,
-.inspector-summary,
-.raw-json {
+.inspector-summary {
   border: 0;
   background: transparent;
 }
@@ -1855,8 +1854,7 @@ kbd {
   font-size: 15px;
 }
 
-#stream-data,
-#raw-json-preview {
+#stream-data {
   max-width: 100%;
   margin: 0;
   overflow: auto;
@@ -1955,40 +1953,6 @@ kbd {
   color: var(--red);
 }
 
-.raw-json {
-  min-height: 0;
-  padding: 14px 0;
-}
-
-.raw-json header {
-  display: flex;
-  justify-content: space-between;
-  color: var(--pink);
-  font-weight: 800;
-  margin-bottom: 10px;
-}
-
-.raw-json.collapsed #raw-json-preview,
-.raw-json.collapsed footer {
-  display: none;
-}
-
-#raw-json-preview {
-  max-height: 220px;
-  padding: 10px 0 0;
-  border-top: 1px solid var(--line);
-  background: transparent;
-}
-
-.raw-json footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .parser-health header {
   display: flex;
   align-items: center;
@@ -2032,19 +1996,6 @@ kbd {
   padding: 10px;
   color: var(--muted);
   background: rgba(0, 0, 0, 0.22);
-}
-
-.raw-json button {
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-}
-
-.raw-json button:hover {
-  border-color: rgba(57, 210, 230, 0.34);
 }
 
 #workspace {
@@ -2285,7 +2236,6 @@ kbd {
 }
 
 #stream-data,
-#raw-json-preview,
 .render-raw pre,
 .mode-panel-content > pre {
   border-radius: var(--radius-sm);

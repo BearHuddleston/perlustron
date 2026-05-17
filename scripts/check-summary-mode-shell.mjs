@@ -47,7 +47,7 @@ expect(app.includes("summary-insights"), "Summary top-insights queue should have
 expect(app.includes('modeButton("Timeline Evidence"') && app.includes('modeButton("Transcript Evidence"') && app.includes('modeButton("Raw Evidence"'), "Summary insights should expose Timeline, Transcript, and Raw evidence routing actions.");
 expect(app.includes("function openInsightEvidence"), "Summary evidence actions should route through an explicit insight evidence helper.");
 expect(app.includes("No event line is logged for this insight"), "Insight evidence routing should show a deterministic no-line fallback instead of silently failing.");
-expect(app.includes("showEvidenceFallback"), "Evidence fallbacks should update the mode panel and Raw payload directly.");
+expect(app.includes("showEvidenceFallback"), "Evidence fallbacks should update the Raw mode panel directly.");
 const focusEventByLineBlock = app.match(/function focusEventByLine[\s\S]*?\n}\n\nfunction parserHealthSummaryText/)?.[0] ?? "";
 expect(focusEventByLineBlock.length > 0, "focusEventByLine should remain discoverable for static evidence-routing checks.");
 expect(!focusEventByLineBlock.includes("openSyntheticStream"), "Evidence routing fallbacks must not reopen the floating Event Context panel outside Map mode.");
