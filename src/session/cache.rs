@@ -43,16 +43,35 @@ fn cache_snapshot(
 fn store_cached_graph(
     cache: &Mutex<HashMap<String, CachedSession>>,
     key: String,
+    path: &Path,
     len: u64,
     modified: SystemTime,
     graph: SessionGraph,
 ) -> Result<()> {
     let subagent_signature = graph_subagent_signature(&graph);
+    {
+        let cache = cache
+            .lock()
+            .map_err(|_| anyhow!("session cache lock poisoned"))?;
+        if cache
+            .get(&key)
+            .is_some_and(|existing| cached_session_is_newer(existing, len, modified))
+        {
+            return Ok(());
+        }
+    }
+
+    let line_offsets = if graph.parser_health.image_count > 0 {
+        session_line_offsets(path, len).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let mut cache = cache
         .lock()
         .map_err(|_| anyhow!("session cache lock poisoned"))?;
-    if let Some(existing) = cache.get(&key)
-        && (existing.modified > modified || (existing.modified == modified && existing.len > len))
+    if cache
+        .get(&key)
+        .is_some_and(|existing| cached_session_is_newer(existing, len, modified))
     {
         return Ok(());
     }
@@ -61,11 +80,16 @@ fn store_cached_graph(
         CachedSession {
             len,
             modified,
+            line_offsets,
             subagent_signature,
             graph,
         },
     );
     Ok(())
+}
+
+fn cached_session_is_newer(existing: &CachedSession, len: u64, modified: SystemTime) -> bool {
+    existing.modified > modified || (existing.modified == modified && existing.len > len)
 }
 
 fn load_session_graph(
@@ -90,6 +114,7 @@ fn load_session_graph(
     store_cached_graph(
         cache,
         key,
+        path,
         graph.processed_byte_length,
         modified,
         graph.clone(),
@@ -125,8 +150,51 @@ fn load_session_status(
 
     let graph = parse_session_jsonl(source, path, len, modified)?;
     let status = status_from_graph(source, &graph, path)?;
-    store_cached_graph(cache, key, graph.processed_byte_length, modified, graph)?;
+    store_cached_graph(cache, key, path, graph.processed_byte_length, modified, graph)?;
     Ok(status)
+}
+
+fn session_line_offsets(path: &Path, byte_length: u64) -> Result<Vec<u64>> {
+    let file = fs::File::open(path)
+        .with_context(|| format!("failed to open session jsonl {}", path.display()))?;
+    let mut reader = BufReader::new(file);
+    let mut offsets = Vec::new();
+    let mut position = 0_u64;
+    let mut line = String::new();
+
+    while position < byte_length {
+        offsets.push(position);
+        line.clear();
+        let read = reader
+            .read_line(&mut line)
+            .with_context(|| format!("failed to index session jsonl {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        position += read as u64;
+    }
+
+    Ok(offsets)
+}
+
+fn cached_session_line_offset(
+    source: SessionSource,
+    path: &Path,
+    cache: &Mutex<HashMap<String, CachedSession>>,
+    event_index: usize,
+) -> Option<u64> {
+    let (len, modified) = session_file_state(path).ok()?;
+    let key = session_cache_key(source, path);
+    let cached = cache_snapshot(cache, &key).ok()??;
+
+    if cached.len != len
+        || cached.modified != modified
+        || graph_subagent_signature(&cached.graph) != cached.subagent_signature
+    {
+        return None;
+    }
+
+    cached.line_offsets.get(event_index).copied()
 }
 
 fn cached_graph(
