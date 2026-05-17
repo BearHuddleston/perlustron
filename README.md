@@ -162,6 +162,8 @@ perlustron bench --generate 10000
 - [Architecture](docs/architecture.md)
 - [Fixtures](docs/fixtures.md)
 - [Release](docs/release.md)
+- [v0.3.0 release checklist](docs/release-checklist-v0.3.0.md)
+- [v0.3.0 release notes](docs/release-notes-v0.3.0.md)
 - [v0.2.0 release checklist](docs/release-checklist-v0.2.0.md)
 - [v0.2.0 release notes draft](docs/release-notes-v0.2.0.md)
 - [Benchmarks](docs/benchmarks.md)
