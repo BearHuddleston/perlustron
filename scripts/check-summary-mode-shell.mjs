@@ -60,6 +60,12 @@ expect(summaryGrid.length > 0, "Summary shell should have CSS grid styling.");
 expect(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/.test(summaryGrid), "Summary shell grid should be responsive.");
 expect(styles.includes(".summary-fact"), "Summary facts should have dedicated card styling.");
 expect(styles.includes(".summary-triage") && /\.summary-triage\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/m.test(styles), "Summary triage cards should wrap responsively.");
-expect(styles.includes("/* Wave 2 frontend polish"), "Wave-2 chrome polish styles should stay grouped and documented.");
+const topActionButton = cssBlockFor(styles, ".top-actions button");
+const modeNav = cssBlockFor(styles, ".mode-nav");
+const modeFilters = cssBlockFor(styles, ".mode-filters");
+expect(/border-radius:\s*var\(--radius-sm\)/.test(topActionButton) && /box-shadow:/m.test(topActionButton), "Top action chrome polish should be folded into the base button selector.");
+expect(/background:\s*[\s\S]*linear-gradient/.test(modeNav) && /scrollbar-width:\s*thin/.test(modeNav), "Mode nav chrome polish should be folded into the base nav selector.");
+expect(/padding:\s*12px 28px/.test(modeFilters) && /scrollbar-width:\s*thin/.test(modeFilters), "Mode filter chrome polish should be folded into the base filter selector.");
+expect(!styles.includes("/* Wave 2 frontend polish"), "Obsolete Wave-2 chrome polish grouping comment should be removed after folding overrides.");
 
 finish();
