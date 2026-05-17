@@ -9,7 +9,7 @@ npm run check
 npm run bench:smoke
 ```
 
-Keep frontend source and built assets together: edit `src/frontend/app.ts`, then run `npm run build:frontend` so `static/app.js` is updated.
+Keep frontend source and built assets together: edit `src/frontend/app.ts`, then run `npm run build:frontend` so `static/app.js` and the shared `static/index.html` asset fingerprint are updated.
 
 For live browser testing, use the debug asset server:
 
