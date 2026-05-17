@@ -16,17 +16,14 @@ import {
 } from "./utils/format";
 import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
 
-const SIDEBAR_DOT_COLORS = ["green", "blue", "violet", "amber"] as const;
+const INFO_DOT_COLORS = ["green", "blue", "violet", "amber"] as const;
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
 const MAX_SUBAGENT_INSPECTION_NODES = 72;
 
 type SessionSource = "codex" | "claude";
 type Mode = "overview" | "inspect";
 type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export" | "settings";
-type SessionFilter = "all" | "live" | "pinned";
 type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction";
-type InspectorPanel = "sessions" | "saved" | "health";
-type SavedView = "errors" | "files" | "latest";
 type ViewAction = "zoom-in" | "zoom-out" | "two-d" | "overview";
 type SceneBucket = "prompt" | "call" | "fileChange" | "message" | "compaction";
 type OverviewCameraMode = "three-d" | "two-d";
@@ -42,10 +39,7 @@ type TimerId = ReturnType<typeof setTimeout>;
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
 type DefaultAppMode = (typeof DEFAULT_APP_MODES)[number];
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
-const SESSION_FILTERS = ["all", "live", "pinned"] as const satisfies readonly SessionFilter[];
 const METRICS = ["error", "long", "file", "diff", "artifact", "compaction"] as const satisfies readonly Metric[];
-const INSPECTOR_PANELS = ["sessions", "saved", "health"] as const satisfies readonly InspectorPanel[];
-const SAVED_VIEWS = ["errors", "files", "latest"] as const satisfies readonly SavedView[];
 const VIEW_ACTIONS = ["zoom-in", "zoom-out", "two-d", "overview"] as const satisfies readonly ViewAction[];
 const APP_MODE_SET = new Set<AppMode>(APP_MODES);
 const DEFAULT_APP_MODE_SET = new Set<AppMode>(DEFAULT_APP_MODES);
@@ -679,14 +673,6 @@ type TimelineEntry =
       compactionIndex: number;
     };
 
-interface PromptRowParts {
-  row: HTMLButtonElement;
-  title: HTMLElement;
-  count: HTMLElement;
-  meta: NodeListOf<HTMLElement>;
-  alerts: HTMLElement;
-}
-
 interface BuiltScene {
   nodes: SceneNode[];
   connectors: Connector[];
@@ -816,10 +802,8 @@ function imagesForNode(node: SceneNode): ContentImageRef[] {
 
 const canvas = queryRequired<HTMLCanvasElement>("#space");
 const sessionTitle = queryRequired<HTMLElement>("#session-title");
-const sessionMeta = queryRequired<HTMLElement>("#session-meta");
 const rootList = queryRequired<HTMLElement>("#root-list");
 const metadataList = queryRequired<HTMLElement>("#metadata-list");
-const promptList = queryRequired<HTMLElement>("#prompt-list");
 const streamKind = queryRequired<HTMLElement>("#stream-kind");
 const streamTitle = queryRequired<HTMLElement>("#stream-title");
 const streamData = queryRequired<HTMLElement>("#stream-data");
@@ -836,33 +820,16 @@ const stageTurnCount = queryRequired<HTMLElement>("#stage-turn-count");
 const stageStarted = queryRequired<HTMLElement>("#stage-started");
 const contextPressureValue = queryRequired<HTMLElement>("#context-pressure-value");
 const contextPressureBars = queryRequired<HTMLElement>("#context-pressure-bars");
-const allCount = queryRequired<HTMLElement>("#all-count");
-const liveCount = queryRequired<HTMLElement>("#live-count");
-const pinnedCount = queryRequired<HTMLElement>("#pinned-count");
 const turnNumber = queryRequired<HTMLElement>("#turn-number");
 const turnTimestamp = queryRequired<HTMLElement>("#turn-timestamp");
-const parserHealthStatus = queryRequired<HTMLElement>("#parser-health-status");
-const parserHealthSummary = queryRequired<HTMLElement>("#parser-health-summary");
 const metricErrors = queryRequired<HTMLElement>("#metric-errors");
 const metricLong = queryRequired<HTMLElement>("#metric-long");
 const metricFiles = queryRequired<HTMLElement>("#metric-files");
 const metricDiffs = queryRequired<HTMLElement>("#metric-diffs");
 const metricArtifacts = queryRequired<HTMLElement>("#metric-artifacts");
 const metricCompactions = queryRequired<HTMLElement>("#metric-compactions");
-const sidebarSessionName = queryRequired<HTMLElement>("#sidebar-session-name");
-const sidebarSource = queryRequired<HTMLElement>("#sidebar-source");
-const sidebarTurns = queryRequired<HTMLElement>("#sidebar-turns");
-const sidebarRecords = queryRequired<HTMLElement>("#sidebar-records");
-const sidebarLiveStatus = queryRequired<HTMLElement>("#sidebar-live-status");
-const sidebarSessionPath = queryRequired<HTMLElement>("#sidebar-session-path");
 const contextEventTitle = queryRequired<HTMLElement>("#context-event-title");
-const savedErrorsSummary = queryRequired<HTMLElement>("#saved-errors-summary");
-const savedFilesSummary = queryRequired<HTMLElement>("#saved-files-summary");
-const savedLatestSummary = queryRequired<HTMLElement>("#saved-latest-summary");
-const savedViewCount = queryRequired<HTMLElement>("#saved-view-count");
 const eventPopup = queryRequired<HTMLElement>("#event-popup");
-const workspace = queryRequired<HTMLElement>("#workspace");
-const inspectorDock = queryRequired<HTMLElement>("#inspector-dock");
 const topbar = queryRequired<HTMLElement>("#topbar");
 const liveToggle = queryRequired<HTMLButtonElement>("#live-toggle");
 const liveState = queryRequired<HTMLElement>("#live-state");
@@ -883,20 +850,14 @@ const modeFilterUnknown = queryRequired<HTMLInputElement>("#mode-filter-unknown"
 const modeFilterMalformed = queryRequired<HTMLInputElement>("#mode-filter-malformed");
 const modeFilterRedacted = queryRequired<HTMLInputElement>("#mode-filter-redacted");
 const modeFilterUtc = queryRequired<HTMLInputElement>("#mode-filter-utc");
-const sessionFilterButtons = queryAll<HTMLButtonElement>("[data-session-filter]");
-const actionButtons = queryAll<HTMLButtonElement>("[data-action]");
-const savedViewButtons = queryAll<HTMLButtonElement>("[data-saved-view]");
 const viewActionButtons = queryAll<HTMLButtonElement>("[data-view-action]");
 const metricButtons = queryAll<HTMLButtonElement>("[data-metric]");
 const modeButtons = queryAll<HTMLButtonElement>("[data-app-mode]");
 const utilityModeSelect = queryRequired<HTMLSelectElement>("#utility-mode-select");
-const inspectorTabs = queryAll<HTMLButtonElement>("[data-inspector-tab]");
-const inspectorPanels = queryAll<HTMLElement>("[data-inspector-panel]");
 const sourceButtons = queryAll<HTMLButtonElement>("[data-source]");
 const sessionSelect = queryRequired<HTMLSelectElement>("#session-select");
 const sessionSelectStatus = queryRequired<HTMLElement>("#session-select-status");
 const settingsButton = queryRequired<HTMLButtonElement>("#settings-button");
-const sidebarToggle = queryRequired<HTMLButtonElement>("#sidebar-toggle");
 const sceneFrame = queryRequired<HTMLElement>("#scene-frame");
 const STATUS_FALLBACK_POLL_INTERVAL_MS = 3500;
 const LIVE_UPDATE_RETRY_MS = 1000;
@@ -1036,7 +997,6 @@ let liveRetryPollTimer: TimerId | null = null;
 let liveEvents: EventSource | null = null;
 let pollInFlight = false;
 let graphRefreshTimer: TimerId | null = null;
-let promptSearchTextCache = new Map<string, string>();
 let pendingRefreshBaseline: { previousLineCount: number; previousLatest: number } | null = null;
 let nextGraphRequestId = 0;
 let latestAppliedGraphRequestId = 0;
@@ -1055,15 +1015,12 @@ let unknownsReport: UnknownsReport | null = null;
 let unknownsLoading = false;
 let unknownsError: string | null = null;
 let unknownsReportPromise: Promise<UnknownsReport | null> | null = null;
-let activeSessionFilter: SessionFilter = "live";
 let activeMetric: Metric | null = null;
 let searchTerm = "";
 let rawPayload: unknown = null;
 let isTailing = true;
 let liveEventsConnected = false;
 let sessionSwitchInProgress = false;
-let activeInspectorPanel: InspectorPanel = "sessions";
-let inspectorCollapsed = false;
 let eventContextCollapsed = false;
 let hasRenderedInitialGraph = false;
 let sessionLoadGeneration = 0;
@@ -1284,7 +1241,6 @@ async function loadGraph({
     previousLatestEventIndex = nextGraph.latestEventIndex;
     lastStatusGraphChanged = false;
     graph = nextGraph;
-    promptSearchTextCache.clear();
     if (hasSameEventSignature && hasRenderedInitialGraph) {
       updateLiveChrome();
       finishSessionGraphLoad();
@@ -1301,7 +1257,7 @@ async function loadGraph({
     }
     rebuildScene({
       preserveView: hadGraph && hasRenderedInitialGraph,
-      preserveInspector: hadGraph && hasRenderedInitialGraph,
+      preserveEventContext: hadGraph && hasRenderedInitialGraph,
     });
     hasRenderedInitialGraph = true;
     updateLiveChrome();
@@ -1517,7 +1473,7 @@ function resetSessionViewState(): void {
   nodeById.clear();
   nodesByPromptId.clear();
   clearWorkflowMeshes();
-  resetInspector();
+  resetEventContext();
 }
 
 function setSessionPickerLoading(): void {
@@ -1541,29 +1497,12 @@ function setSessionPickerError(): void {
 }
 
 function setSessionLoadingChrome(sessionPath: string | null): void {
-  const label = sessionLabelForPath(sessionPath);
   sessionTitle.textContent = "Loading session";
-  sessionMeta.textContent = label;
   stageTurnCount.textContent = "Loading";
   stageStarted.textContent = "Reading JSONL";
-  sidebarSessionName.textContent = "Loading session";
-  sidebarSource.textContent = sourceLabel();
-  sidebarTurns.textContent = "0";
-  sidebarRecords.textContent = "0";
-  sidebarLiveStatus.textContent = "Loading";
-  sidebarSessionPath.textContent = label;
-  sidebarSessionPath.title = sessionPath || "Latest session";
   liveState.textContent = "LOAD";
   liveCopy.textContent = "Switching session...";
   setSessionPickerLoading();
-}
-
-function sessionLabelForPath(sessionPath: string | null): string {
-  if (!sessionPath) {
-    return "Latest session";
-  }
-  const option = sessionOptions.find((session) => session.path === sessionPath);
-  return option?.label || shortPath(sessionPath) || sessionPath;
 }
 
 function handleSessionStatus(status: SessionStatus): void {
@@ -1606,7 +1545,7 @@ function handleSessionStatus(status: SessionStatus): void {
 
   applySessionStatus(status, nextLiveCues);
   if (liveCueChanged && (statusCompactionInProgress || !shouldRefreshGraph)) {
-    rebuildScene({ preserveView: true, preserveInspector: true });
+    rebuildScene({ preserveView: true, preserveEventContext: true });
   }
   if (shouldRefreshGraph && (!hasSameEventSignature || hasUnprocessedBytes || hasRenderableCountChange || hasParsedAdvance)) {
     scheduleGraphRefresh(previousLineCount, previousLatest);
@@ -1693,7 +1632,6 @@ function followLatestGraphUpdate(previousFocus: THREE.Vector3 | null = null): vo
   } else {
     frameOverview({ preserveDistance: true });
   }
-  renderPromptList();
   if (contextWasVisible) {
     openStream(latest, { restartStream: shouldRestartStream });
   } else {
@@ -1703,7 +1641,7 @@ function followLatestGraphUpdate(previousFocus: THREE.Vector3 | null = null): vo
 }
 
 function shouldAutoFollowLiveGraph(): boolean {
-  return isTailing && activeSessionFilter === "live" && !searchTerm && !activeMetric;
+  return isTailing && !searchTerm && !activeMetric;
 }
 
 function panWithFollowFocus(previousFocus: THREE.Vector3, nextFocus: THREE.Vector3): void {
@@ -1758,8 +1696,6 @@ function applySessionStatus(status: SessionStatus, nextLiveCues: LiveTailCues): 
   liveCues = nextLiveCues;
   setCompactionInProgress(liveCues.compactionInProgress);
   stageStarted.textContent = recordsLabel(status.lineCount, current.pendingBytes);
-  liveCount.textContent = `${status.isLive ? current.ui.allCount : 0}`;
-  sidebarRecords.textContent = `${status.lineCount}`;
   renderContextPressure(tokenTelemetryWithLiveCue(current.tokenTelemetry, liveCues.latestTokenSample));
   updateLiveChrome();
   renderActiveModePanel();
@@ -1774,7 +1710,13 @@ function setCompactionInProgress(next: boolean): boolean {
   return true;
 }
 
-function rebuildScene({ preserveView = false, preserveInspector = false }: { preserveView?: boolean; preserveInspector?: boolean } = {}): void {
+function rebuildScene({
+  preserveView = false,
+  preserveEventContext = false,
+}: {
+  preserveView?: boolean;
+  preserveEventContext?: boolean;
+} = {}): void {
   const previousMotion = preserveView ? captureNodeMotionState() : null;
   clearWorkflowMeshes();
   const built = buildNodes(currentGraph());
@@ -1795,13 +1737,13 @@ function rebuildScene({ preserveView = false, preserveInspector = false }: { pre
   updateConnectorGeometry();
   syncInstanceColors();
   if (selectedNodeId && nodeById.has(selectedNodeId)) {
-    syncSelectedSource({ restartStream: !preserveInspector });
+    syncSelectedSource({ restartStream: !preserveEventContext });
   } else {
     selectedNodeId = null;
-    if (preserveInspector) {
-      refreshInspectorTotals();
+    if (preserveEventContext) {
+      refreshEventContextTotals();
     } else {
-      resetInspector();
+      resetEventContext();
     }
   }
 }
@@ -1811,18 +1753,8 @@ function updateGraphChrome(): void {
   const ui = current.ui;
   const sessionName = ui.sessionName || current.cwd?.split(/[\\/]/).filter(Boolean).at(-1) || `${sourceLabel()} session`;
   sessionTitle.textContent = sessionName;
-  sessionMeta.textContent = `${sourceLabel(current.source)}  |  ${shortPath(current.sessionPath)}  |  ${current.cwd || "local"}`;
   stageTurnCount.textContent = `${ui.totalTurns} turns`;
   stageStarted.textContent = recordsLabel(current.lineCount, current.pendingBytes);
-  sidebarSessionName.textContent = sessionName;
-  sidebarSource.textContent = sourceLabel(current.source);
-  sidebarTurns.textContent = `${ui.totalTurns}`;
-  sidebarRecords.textContent = `${current.lineCount}`;
-  sidebarSessionPath.textContent = shortPath(current.sessionPath) || current.sessionPath;
-  sidebarSessionPath.title = current.sessionPath;
-  allCount.textContent = `${ui.allCount}`;
-  liveCount.textContent = `${ui.liveCount}`;
-  pinnedCount.textContent = `${pinnedPromptCount(current)}`;
   metricErrors.textContent = `${ui.metricErrors}`;
   metricLong.textContent = `${ui.metricLongCalls}`;
   metricFiles.textContent = `${ui.metricFiles}`;
@@ -1830,11 +1762,8 @@ function updateGraphChrome(): void {
   metricArtifacts.textContent = `${ui.metricArtifacts}`;
   metricCompactions.textContent = `${ui.metricCompactions}`;
   renderContextPressure(current.tokenTelemetry);
-  updateSavedViewChrome(current);
   renderRootList();
   renderMetadataList();
-  renderParserHealth(current.parserHealth);
-  renderPromptList();
   renderActiveModePanel();
 }
 
@@ -1929,46 +1858,6 @@ function parserHealthModeTextLines(health: ParserHealth): string[] {
   ];
 }
 
-function renderParserHealth(health: ParserHealth | undefined): void {
-  if (!health) {
-    parserHealthStatus.textContent = "Unavailable";
-    parserHealthSummary.replaceChildren();
-    return;
-  }
-  const issues = parserHealthIssueCount(health);
-  parserHealthStatus.textContent = issues ? `${issues} issue${issues === 1 ? "" : "s"}` : "Healthy";
-  const rows: ParserHealthLine[] = [
-    ["Lines read", parserHealthNumber(health.totalLinesRead)],
-    ["Parsed events", parserHealthNumber(health.parsedEventCount)],
-    parserHealthRenderableLine(health),
-    ...parserHealthIssueLines(health, parserHealthNumber, "Skipped large payloads"),
-    ["Redacted fields", `${health.redactedFieldCount}`],
-    ["Images", `${health.imageCount}`],
-    ["Tool calls", `${health.toolCallCount}`],
-    ["Tool results", `${health.toolResultCount}`],
-    ["File activity", `${health.fileActivityCount}`],
-    ["Compactions", `${health.compactionCount}`],
-    ["Token telemetry", health.tokenTelemetryAvailable ? "available" : "not logged"],
-    ["Parser", parserHealthVersionValue(health)],
-  ];
-  const fragment = document.createDocumentFragment();
-  rows.forEach(([label, value]) => {
-    const row = document.createElement("div");
-    const labelElement = document.createElement("span");
-    const valueElement = document.createElement("strong");
-    labelElement.textContent = label;
-    valueElement.textContent = value;
-    row.append(labelElement, valueElement);
-    fragment.append(row);
-  });
-  if (health.unknownEventTypes?.length) {
-    const unknowns = document.createElement("pre");
-    unknowns.textContent = parserHealthUnknownTypeLines(health).join("\n");
-    fragment.append(unknowns);
-  }
-  parserHealthSummary.replaceChildren(fragment);
-}
-
 function renderContextPressure(telemetry: TokenTelemetry | undefined): void {
   const latestPercent = telemetry?.latestContextPercent ?? null;
   contextPressureValue.textContent =
@@ -2020,21 +1909,6 @@ function tokenTelemetryWithLiveCue(
   };
 }
 
-function updateSavedViewChrome(current: SessionGraph): void {
-  const ui = current.ui;
-  const latestPrompt = current.prompts.at(-1);
-  savedErrorsSummary.textContent = `${ui.metricErrors} errors, ${ui.metricLongCalls} long calls`;
-  savedFilesSummary.textContent = `${ui.metricFiles} file operations, ${ui.metricDiffs} diffs`;
-  savedLatestSummary.textContent = latestPrompt
-    ? `${latestPrompt.calls.length} calls, ${latestPrompt.fileChanges?.length ?? 0} file changes`
-    : "Waiting for session data";
-  savedViewCount.textContent = `${savedViewButtons.length}`;
-}
-
-function pinnedPromptCount(current: SessionGraph): number {
-  return Math.min(3, current.prompts.length);
-}
-
 function patchExistingScene(): boolean {
   const built = buildNodes(currentGraph());
   if (built.nodes.length !== nodes.length || built.connectors.length !== connectors.length) {
@@ -2080,7 +1954,7 @@ function patchExistingScene(): boolean {
   if (selectedNodeId && nodeById.has(selectedNodeId)) {
     syncSelectedSource({ restartStream: false });
   } else {
-    refreshInspectorTotals();
+    refreshEventContextTotals();
   }
   return true;
 }
@@ -3726,7 +3600,7 @@ function compactionProgressTimelineEntry(source: SessionGraph, entries: Timeline
   };
 }
 
-function renderSidebarRow({
+function renderInfoRow({
   label,
   detail,
   status,
@@ -3746,7 +3620,7 @@ function renderSidebarRow({
   row.title = title;
 
   const dot = document.createElement("span");
-  dot.className = `root-dot ${SIDEBAR_DOT_COLORS[dotIndex % SIDEBAR_DOT_COLORS.length]}`;
+  dot.className = `root-dot ${INFO_DOT_COLORS[dotIndex % INFO_DOT_COLORS.length]}`;
   const copy = document.createElement("span");
   copy.className = "root-copy";
   const rowLabel = document.createElement("strong");
@@ -3776,11 +3650,13 @@ function renderRootList(): void {
           status: "Loaded",
         },
       ];
+  const nonSessionFileRoots = roots.filter((root) => root.label !== "Session file");
+  const visibleRoots = nonSessionFileRoots.length ? nonSessionFileRoots : roots;
   const fragment = document.createDocumentFragment();
 
-  roots.forEach((root, index) => {
+  visibleRoots.forEach((root, index) => {
     fragment.append(
-      renderSidebarRow({
+      renderInfoRow({
         label: root.label || "Session root",
         detail: shortPath(root.path) || root.path || "Local path",
         status: root.status || "Local",
@@ -3809,7 +3685,7 @@ function renderMetadataList(): void {
   const fragment = document.createDocumentFragment();
   rows.forEach(([label, value], index) => {
     fragment.append(
-      renderSidebarRow({
+      renderInfoRow({
         label,
         detail: value,
         className: "metadata-row",
@@ -3824,193 +3700,8 @@ function shortCommit(commit: string | null | undefined): string {
   return commit ? commit.slice(0, 10) : "";
 }
 
-function renderPromptList(): void {
-  const current = currentGraph();
-  const rowsById = new Map<string, PromptRowSummary>((current.ui?.promptRows || []).map((row) => [row.id, row]));
-  const sessionRows = timelineEntries(current);
-  const visibleRows = sessionRows.filter((row, rowIndex) => {
-    if (row.type === "compaction") {
-      const matchesSearch = compactionMatchesSearch(row.compaction);
-      if (!matchesSearch) {
-        return false;
-      }
-      if (searchTerm || activeSessionFilter === "all") {
-        return true;
-      }
-      return activeSessionFilter === "live" && current.isLive && rowIndex + 1 === sessionRows.length;
-    }
-
-    const { prompt, promptIndex } = row;
-    const rowSummary = rowsById.get(prompt.id);
-    const matchesFilter =
-      searchTerm ||
-      activeSessionFilter === "all" ||
-      (activeSessionFilter === "live" && (rowSummary?.isLive || promptIndex + 1 === current.prompts.length)) ||
-      (activeSessionFilter === "pinned" && promptIndex < pinnedPromptCount(current));
-    return matchesFilter && promptMatchesSearch(prompt);
-  });
-
-  if (!visibleRows.length) {
-    const empty = document.createElement("div");
-    empty.className = "prompt-empty";
-    empty.textContent = "No matching sessions";
-    promptList.replaceChildren(empty);
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  visibleRows.forEach((sessionRow) => {
-    if (sessionRow.type === "compaction") {
-      fragment.append(renderCompactionRow(sessionRow.compaction));
-      return;
-    }
-    const { prompt } = sessionRow;
-    const rowSummary = rowsById.get(prompt.id);
-    const parts = createPromptRow(prompt.id === activePromptId ? "prompt-row active" : "prompt-row");
-    const { row, meta } = parts;
-    row.dataset.promptId = prompt.id;
-    parts.title.textContent = prompt.title;
-    parts.count.textContent = rowSummary?.isLive ? "LIVE" : "LOCAL";
-    meta[0].textContent = `${rowSummary?.turns ?? prompt.calls.length + prompt.assistantMessages.length + (prompt.fileChanges?.length ?? 0)} turns`;
-    meta[1].textContent = `${rowSummary?.local ?? prompt.calls.filter((call) => call.kind === "local").length} local`;
-    meta[2].textContent = `${rowSummary?.browser ?? prompt.calls.filter((call) => call.kind === "browser").length} browser`;
-    meta[3].textContent = `${rowSummary?.files ?? prompt.fileChanges?.length ?? 0} files`;
-    parts.alerts.textContent = promptBadges(prompt).join("  ");
-    row.addEventListener("click", () => {
-      enterInspectMode(prompt.id, nodeById.get(prompt.id));
-    });
-    fragment.append(row);
-  });
-  promptList.replaceChildren(fragment);
-}
-
-function renderCompactionRow(compaction: CompactionNode): HTMLButtonElement {
-  const parts = createPromptRow(`prompt-row compaction-row ${compaction.id === selectedNodeId ? "active" : ""}`);
-  const { row, meta } = parts;
-  row.dataset.compactionId = compaction.id;
-  parts.title.textContent = compaction.title;
-  parts.count.textContent = "COMPACT";
-  meta[0].textContent = `${compaction.replacedMessageCount} messages`;
-  meta[1].textContent = compaction.encrypted ? "encrypted" : "plain text";
-  meta[2].textContent = `event ${compaction.eventIndex}`;
-  meta[3].textContent = compaction.reason || "context checkpoint";
-  parts.alerts.textContent = "compacted";
-  row.addEventListener("click", () => {
-    activePromptId = null;
-    if (mode === "inspect") {
-      exitInspectMode({ preserveCamera: true });
-    } else {
-      setLayoutTargets({ preserveCamera: true });
-    }
-    renderPromptList();
-    openStream(nodeById.get(compaction.id));
-  });
-  return row;
-}
-
-function createPromptRow(className: string): PromptRowParts {
-  const row = document.createElement("button");
-  row.type = "button";
-  row.className = className;
-  row.innerHTML = `<span class="prompt-row-title"></span><span class="prompt-row-count"></span><span class="prompt-row-meta"><span></span><span></span><span></span><span></span></span><span class="prompt-row-alerts"></span>`;
-  return {
-    row,
-    title: queryRequired<HTMLElement>(".prompt-row-title", row),
-    count: queryRequired<HTMLElement>(".prompt-row-count", row),
-    meta: row.querySelectorAll<HTMLElement>(".prompt-row-meta span"),
-    alerts: queryRequired<HTMLElement>(".prompt-row-alerts", row),
-  };
-}
-
-function promptBadges(prompt: PromptNode): string[] {
-  let errorCount = 0;
-  let artifactCount = 0;
-  let fileCount = 0;
-  prompt.calls.forEach((call) => {
-    const text = callSearchText(call);
-    if (text.includes("error")) {
-      errorCount += 1;
-    }
-    if (text.includes("artifact")) {
-      artifactCount += 1;
-    }
-    if (/(file|read|write|rg|patch)/.test(text)) {
-      fileCount += 1;
-    }
-  });
-  const fileChangeCount = prompt.fileChanges?.length ?? 0;
-  const changeCounts = fileChangeCounts(prompt.fileChanges);
-  const badges = [];
-  if (errorCount) {
-    badges.push(countLabel(errorCount, "error"));
-  }
-  if (artifactCount) {
-    badges.push(countLabel(artifactCount, "artifact"));
-  }
-  if (fileCount || fileChangeCount) {
-    badges.push(`${fileCount + fileChangeCount} file ops`);
-  }
-  const added = changeCounts.add;
-  const updated = changeCounts.update;
-  const deleted = changeCounts.delete;
-  if (added || updated || deleted) {
-    badges.push(`+${added} ~${updated} -${deleted}`);
-  }
-  if (prompt.images.length) {
-    badges.push(countLabel(prompt.images.length, "image"));
-  }
-  if (prompt.assistantMessages.length) {
-    badges.push(countLabel(prompt.assistantMessages.length, "message"));
-  }
-  return badges.length ? badges : ["clean"];
-}
-
-function countLabel(count: number, label: string): string {
-  return `${count} ${label}${count === 1 ? "" : "s"}`;
-}
-
-function fileChangeCounts(fileChanges: FileChangeNode[] = []): Record<FileChangeType, number> {
-  const counts: Record<FileChangeType, number> = {
-    add: 0,
-    update: 0,
-    delete: 0,
-    move: 0,
-  };
-  fileChanges.forEach((change) => {
-    counts[normalizedFileChangeType(change)] += 1;
-  });
-  return counts;
-}
-
 function normalizedFileChangeType(change: FileChangeNode): FileChangeType {
   return FILE_CHANGE_TYPES.includes(change.changeType) ? change.changeType : "update";
-}
-
-function promptMatchesSearch(prompt: PromptNode): boolean {
-  if (!searchTerm) {
-    return true;
-  }
-  return promptSearchText(prompt).includes(searchTerm);
-}
-
-function promptSearchText(prompt: PromptNode): string {
-  const cached = promptSearchTextCache.get(prompt.id);
-  if (cached) {
-    return cached;
-  }
-  const haystack =
-    `${prompt.title} ${prompt.text} ${prompt.calls.map((call) => `${call.name} ${call.argumentPreview} ${call.outputPreview || ""}`).join(" ")} ${(prompt.fileChanges || []).map(fileChangeSearchText).join(" ")} ${prompt.assistantMessages.map((message) => message.text).join(" ")}`.toLowerCase();
-  promptSearchTextCache.set(prompt.id, haystack);
-  return haystack;
-}
-
-function compactionMatchesSearch(compaction: CompactionNode): boolean {
-  if (!searchTerm) {
-    return true;
-  }
-  const haystack =
-    `${compaction.title} ${compaction.text} ${compaction.detail} compacted compaction checkpoint`.toLowerCase();
-  return haystack.includes(searchTerm);
 }
 
 function render() {
@@ -4575,7 +4266,6 @@ function onCanvasDoubleClick(event: MouseEvent): void {
     activePromptId = null;
     mode = "overview";
     setLayoutTargets();
-    renderPromptList();
     openStream(hit);
     return;
   }
@@ -4916,7 +4606,7 @@ function latestGraphFocusNode(): SceneNode | null {
   return latestPromptFocusNode() ?? latestTimelineNode ?? latestGraphNode();
 }
 
-function resetInspector(): void {
+function resetEventContext(): void {
   hideEventPopup();
   const current = graph;
   const latestPrompt = current?.prompts.at(-1);
@@ -4929,7 +4619,7 @@ function resetInspector(): void {
   renderStreamImages();
 }
 
-function refreshInspectorTotals(): void {
+function refreshEventContextTotals(): void {
   if (activeAppMode === "raw" && !rawPayload) {
     renderRawModePanel();
   }
@@ -6481,27 +6171,21 @@ function selectAppMode(nextMode: AppMode): void {
     hideEventPopup();
   }
   if (nextMode === "map") {
-    setInspectorPanel("sessions");
     exitInspectMode({ preserveCamera: true });
     frameOverview();
     return;
   }
   renderActiveModePanel();
   if (nextMode === "summary") {
-    setInspectorPanel("sessions");
     return;
   }
   if (nextMode === "timeline") {
-    setInspectorPanel("sessions");
-    setInspectorCollapsed(false);
     return;
   }
   if (nextMode === "transcript") {
     return;
   }
   if (nextMode === "health") {
-    setInspectorPanel("health");
-    setInspectorCollapsed(false);
     openSyntheticStream("HEALTH", "Parser health", healthModeText());
     return;
   }
@@ -6657,35 +6341,10 @@ function contextPressureSummary(telemetry: TokenTelemetry | undefined): string {
   return `${formatNumber(telemetry.latestTotalTokens)}${window} tokens (${percent})`;
 }
 
-function openSessionOverview(): void {
-  if (mode === "inspect") {
-    exitInspectMode({ preserveCamera: true });
-  }
-  selectedNodeId = null;
-  syncInstanceColors();
-  openSyntheticStream("SESSION", graph?.ui.sessionName || "Session overview", sessionOverviewText());
-}
-
-function focusMetricReview(metric: Metric): void {
-  activeMetric = metric;
-  setActiveButton(metricButtons, (button) => button.dataset.metric === activeMetric);
-  syncInstanceColors();
-  focusFirstMetricMatch(metric);
-}
-
-function focusLatestPrompt(): void {
-  const latestPrompt = graph?.prompts.at(-1);
-  if (!latestPrompt) {
-    return;
-  }
-  enterInspectMode(latestPrompt.id, nodeById.get(latestPrompt.id));
-}
-
 function enterInspectMode(promptId: string, streamNode: SceneNode | undefined | null = nodeById.get(promptId)): void {
   activePromptId = promptId;
   mode = "inspect";
   setLayoutTargets();
-  renderPromptList();
   openStream(streamNode);
 }
 
@@ -6695,7 +6354,6 @@ function exitInspectMode({ preserveCamera = false }: { preserveCamera?: boolean 
   }
   mode = "overview";
   setLayoutTargets({ preserveCamera });
-  renderPromptList();
 }
 
 function setupControls() {
@@ -6739,25 +6397,8 @@ function setupControls() {
     }
   });
 
-  inspectorTabs.forEach((button) => {
-    button.addEventListener("click", () => {
-      const panel = oneOf(INSPECTOR_PANELS, button.dataset.inspectorTab, "sessions");
-      if (panel === activeInspectorPanel && !inspectorCollapsed) {
-        setInspectorCollapsed(true);
-        return;
-      }
-      setInspectorCollapsed(false);
-      setInspectorPanel(panel);
-    });
-  });
-
-  sidebarToggle.addEventListener("click", () => setInspectorCollapsed(!inspectorCollapsed));
-
-  setInspectorPanel("sessions", { force: true });
-
   searchInput.addEventListener("input", () => {
     searchTerm = searchInput.value.trim().toLowerCase();
-    renderPromptList();
     syncInstanceColors();
     renderSearchAwareModePanel();
   });
@@ -6765,7 +6406,6 @@ function setupControls() {
     if (event.key === "Escape") {
       searchInput.value = "";
       searchTerm = "";
-      renderPromptList();
       syncInstanceColors();
       renderSearchAwareModePanel();
     }
@@ -6791,39 +6431,6 @@ function setupControls() {
   document.addEventListener("visibilitychange", clearCameraFlyKeysWhenHidden);
   window.addEventListener("blur", clearCameraFlyKeys);
 
-  sessionFilterButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      activeSessionFilter = oneOf(SESSION_FILTERS, button.dataset.sessionFilter, "live");
-      setActiveButton(sessionFilterButtons, (item) => item === button);
-      renderPromptList();
-    });
-  });
-
-  actionButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const action = button.dataset.action;
-      if (action === "sessions") {
-        openSessionOverview();
-        return;
-      }
-      openSyntheticStream("SYSTEM", `${action} controls`, sessionOverviewText());
-    });
-  });
-
-  savedViewButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const savedView = oneOf(SAVED_VIEWS, button.dataset.savedView, "latest");
-      setActiveButton(savedViewButtons, (item) => item === button);
-      if (savedView === "errors") {
-        focusMetricReview(findMetricWithResults(["error", "long"]) || "error");
-      } else if (savedView === "files") {
-        focusMetricReview("file");
-      } else {
-        focusLatestPrompt();
-      }
-    });
-  });
-
   viewActionButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const action = oneOf(VIEW_ACTIONS, button.dataset.viewAction, "two-d");
@@ -6840,7 +6447,6 @@ function setupControls() {
         overviewCameraMode = "two-d";
         setLayoutTargets({ preserveCamera: true });
         frameOverview();
-        renderPromptList();
       }
     });
   });
@@ -7102,7 +6708,6 @@ function updateLiveChrome(): void {
         : "Watching session..."
       : "Waiting for writes..."
     : "Updates paused";
-  sidebarLiveStatus.textContent = isTailing ? (live ? "Live" : "Stale") : "Paused";
 }
 
 function animateLiveGraphUpdates(): void {
@@ -7126,48 +6731,6 @@ function animateLiveGraphUpdates(): void {
 
 function logTransientError(error: unknown): void {
   console.warn(errorMessage(error));
-}
-
-function syncInspectorChrome(): void {
-  workspace.classList.toggle("inspector-collapsed", inspectorCollapsed);
-  inspectorDock.classList.toggle("inspector-collapsed", inspectorCollapsed);
-  inspectorDock.setAttribute("aria-expanded", `${!inspectorCollapsed}`);
-  sidebarToggle.setAttribute("aria-expanded", `${!inspectorCollapsed}`);
-  sidebarToggle.setAttribute("aria-label", inspectorCollapsed ? "Expand sidebar" : "Collapse sidebar");
-  sidebarToggle.title = inspectorCollapsed ? "Expand sidebar" : "Collapse sidebar";
-  sidebarToggle.textContent = inspectorCollapsed ? ">" : "<";
-  inspectorTabs.forEach((button) => {
-    const active = button.dataset.inspectorTab === activeInspectorPanel;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-expanded", `${active && !inspectorCollapsed}`);
-  });
-  inspectorPanels.forEach((section) => {
-    section.classList.toggle("active", section.dataset.inspectorPanel === activeInspectorPanel);
-  });
-}
-
-function setInspectorPanel(
-  panel: InspectorPanel,
-  { force = false }: { force?: boolean } = {}
-): void {
-  const changed = panel !== activeInspectorPanel;
-  if (!changed && !force) {
-    return;
-  }
-
-  activeInspectorPanel = panel;
-  syncInspectorChrome();
-  scheduleViewportRefresh();
-}
-
-function setInspectorCollapsed(collapsed: boolean): void {
-  if (collapsed === inspectorCollapsed) {
-    return;
-  }
-
-  inspectorCollapsed = collapsed;
-  syncInspectorChrome();
-  scheduleViewportRefresh({ overview: true });
 }
 
 function scheduleViewportRefresh({ overview = false }: { overview?: boolean } = {}): void {
@@ -7233,10 +6796,6 @@ function focusFirstMetricMatch(metric: Metric): boolean {
   }
   enterInspectMode(match.promptId, match);
   return true;
-}
-
-function findMetricWithResults(metrics: Metric[]): Metric | undefined {
-  return metrics.find((metric) => nodes.some((node) => node.type !== "prompt" && nodeMatchesMetric(node, metric)));
 }
 
 function nodeMatchesMetric(node: SceneNode, metric: Metric | null): boolean {

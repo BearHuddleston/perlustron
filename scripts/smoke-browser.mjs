@@ -260,9 +260,8 @@ async function waitForLoadedDemo(page) {
   await page.waitForFunction(
     () => {
       const title = document.querySelector("#session-title")?.textContent?.trim() || "";
-      const rows = document.querySelectorAll("#prompt-list .prompt-row").length;
       const turns = document.querySelector("#stage-turn-count")?.textContent?.trim() || "";
-      return title && title !== "Loading session" && rows > 0 && !turns.startsWith("0 ");
+      return title && title !== "Loading session" && !turns.startsWith("0 ");
     },
     null,
     { timeout: UI_TIMEOUT_MS }
@@ -278,15 +277,6 @@ async function assertMode(page, selector, expectedTitle) {
   );
   const hidden = await page.locator("#mode-panel").evaluate((node) => node.classList.contains("hidden"));
   assert(!hidden, `${expectedTitle} mode panel should be visible`);
-}
-
-async function assertInspectorTab(page, tabName) {
-  await page.click(`[data-inspector-tab="${tabName}"]`);
-  await page.waitForFunction(
-    (tab) => document.querySelector(`[data-inspector-panel="${tab}"]`)?.classList.contains("active"),
-    tabName,
-    { timeout: UI_TIMEOUT_MS }
-  );
 }
 
 async function assertSummaryDeepLink(page, server) {
@@ -367,7 +357,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   assert(evidence.panelHidden === false, "Open Evidence should show a visible evidence panel");
   assert(evidence.panelSummary === "Selected event", "Open Evidence should preserve the selected event in Raw mode");
   assert(evidence.panelJsonObject, "Open Evidence should expose parseable selected event JSON");
-  assert(!evidence.rawJsonPreviewExists, "Removed Raw JSON inspector preview should stay out of the DOM");
+  assert(!evidence.rawJsonPreviewExists, "Removed Raw JSON preview should stay out of the DOM");
   assert(evidence.eventPopupHidden === true, "Open Evidence should not reveal Map-only Event Context outside Map mode");
   assert(evidence.visibleUrl.includes("mode=raw"), "Open Evidence should update the visible URL to the evidence mode");
   assert(!evidence.visibleUrl.includes("token="), "Open Evidence should keep the visible URL token-stripped");
@@ -433,27 +423,6 @@ async function openEventPopup(page) {
   await page.waitForFunction(() => document.querySelector("#mode-panel")?.classList.contains("hidden"), null, {
     timeout: UI_TIMEOUT_MS,
   });
-
-  const compactionRows = await page.locator("#prompt-list .compaction-row").count();
-  if (compactionRows > 0) {
-    await page.locator("#prompt-list .compaction-row").first().click();
-    await page.waitForTimeout(250);
-    const opened = await page.locator("#event-popup").evaluate((node) => !node.classList.contains("hidden"));
-    if (opened) {
-      return true;
-    }
-  }
-
-  const promptRows = page.locator("#prompt-list .prompt-row");
-  const promptRowCount = await promptRows.count();
-  for (let index = 0; index < Math.min(promptRowCount, 4); index += 1) {
-    await promptRows.nth(index).click();
-    await page.waitForTimeout(250);
-    const opened = await page.locator("#event-popup").evaluate((node) => !node.classList.contains("hidden"));
-    if (opened) {
-      return true;
-    }
-  }
 
   const twoD = page.locator('[data-view-action="two-d"]');
   if ((await twoD.count()) > 0) {
@@ -524,7 +493,8 @@ async function testBrowserUi(server, browser) {
       title: document.querySelector("#session-title")?.textContent?.trim(),
       turnCount: document.querySelector("#stage-turn-count")?.textContent?.trim(),
       modeButtons: Array.from(document.querySelectorAll("[data-app-mode]")).map((button) => button.textContent?.trim()),
-      inspectorTabs: Array.from(document.querySelectorAll("[data-inspector-tab]")).map((button) => button.getAttribute("data-inspector-tab")),
+      sessionsSidebarExists: Boolean(document.querySelector("#inspector-dock")),
+      rootRows: document.querySelectorAll("#root-list .root-row").length,
       visibleUrl: window.location.href,
     }));
     assert(chrome.title && chrome.title !== "Loading session", "demo should load a concrete session title");
@@ -536,15 +506,9 @@ async function testBrowserUi(server, browser) {
     await assertSummaryDeepLink(page, server);
     await assertSummaryOpenEvidenceRoutesToRaw(page, server);
     await assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server);
-    for (const tab of ["sessions", "saved", "health"]) {
-      assert(chrome.inspectorTabs.includes(tab), `Inspector tab ${tab} should render`);
-    }
-    assert(!chrome.inspectorTabs.includes("raw"), "Removed Raw JSON inspector tab should not render");
+    assert(!chrome.sessionsSidebarExists, "Gutted sessions sidebar should not render");
+    assert(chrome.rootRows > 0, "Session roots should render above the map");
     assert(!chrome.visibleUrl.includes("token="), "token should be removed from the visible browser URL");
-
-    await assertInspectorTab(page, "saved");
-    await assertInspectorTab(page, "health");
-    await assertInspectorTab(page, "sessions");
 
     await assertMode(page, '[data-app-mode="timeline"]', "Timeline");
     await assertMode(page, '[data-app-mode="transcript"]', "Transcript");

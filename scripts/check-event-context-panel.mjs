@@ -21,8 +21,8 @@ expect(
 expect(app.includes('queryRequired<HTMLButtonElement>("#stream-minimize")'), "Frontend should query the context minimize button.");
 expect(app.includes('queryRequired<HTMLButtonElement>("#stream-copy-ref")'), "Frontend should query the evidence reference copy button.");
 expect(html.includes('class="event-context-actions"'), "Event context should expose compact evidence action buttons.");
-expect(!html.includes('data-inspector-tab="raw"'), "Inspector rail should not expose the removed Raw JSON tab.");
-expect(!html.includes('id="raw-json-preview"'), "Inspector rail should not carry the removed Raw JSON preview.");
+expect(!html.includes('data-inspector-tab="raw"'), "Removed Raw JSON sidebar tab should stay out of the DOM.");
+expect(!html.includes('id="raw-json-preview"'), "Removed Raw JSON preview should stay out of the DOM.");
 expect(app.includes("setEventContextCollapsed"), "Frontend should synchronize compact/expanded context state.");
 expect(app.includes('streamMinimize.addEventListener("click"'), "Frontend should wire the context minimize button.");
 expect(app.includes('streamCopyRef.addEventListener("click", copySelectedEventRef)'), "Copy Ref should use the safe evidence-reference helper.");
@@ -44,7 +44,7 @@ expect(/\bbox-shadow:\s*[^;]+;/.test(eventPopup), "Event context floating card s
 expect(/\bbackdrop-filter:\s*[^;]+;/.test(eventPopup), "Event context should preserve the glass panel treatment.");
 
 expect(eventPopupCompact.length > 0, "Event context should define a compact/minimized state.");
-expect(/\.event-popup\.compact\s+\.context-meta\s*,\s*\.event-popup\.compact\s+\.inspector-summary\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Compact event context should hide detailed metadata and JSON copy.");
+expect(/\.event-popup\.compact\s+\.context-meta\s*,\s*\.event-popup\.compact\s+\.event-summary\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Compact event context should hide detailed metadata and JSON copy.");
 expect(/\.event-context-actions\s*\{[^}]*flex-wrap:\s*wrap\s*;/m.test(styles), "Event evidence actions should wrap instead of overflowing cramped cards.");
 expect(/\.stream-image-placeholder\s*\{[^}]*border:/m.test(styles), "Missing styled empty-media placeholder for Event Context.");
 expect(/\.stream-images\s+figure\.load-error\s+img\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Broken event images should be hidden behind the unavailable-image placeholder.");
