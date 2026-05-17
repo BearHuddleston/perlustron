@@ -1,14 +1,18 @@
 # v0.2.0 Release Checklist
 
-Use this checklist after the release-prep changes are reviewed and merged to `main`. Do not run the tag push, publish the draft, or mutate GitHub repository About text until a human explicitly approves those irreversible steps.
+Use this checklist after the release-prep changes are reviewed and merged to `main`. Do not run the tag push, publish or edit a GitHub Release, move/re-push an existing tag, or mutate GitHub repository About text until a human explicitly approves those irreversible steps.
+
+Wave 3 consolidation note: Summary-first evidence routing, copy-safe references/share summaries, larger-session image-evidence indexing, and the refreshed Summary-first screenshot are currently documented here as release-candidate content from `dev/nightly`. Before applying this checklist to a public release, verify the selected tag/release actually contains those commits.
 
 ## Preflight Consistency
 
 - Version metadata is `0.2.0` in `Cargo.toml`, `Cargo.lock`, `package.json`, and `package-lock.json`.
 - README install docs list the same release archive names produced by `.github/workflows/release.yml`.
-- v0.2.0 release notes live at `docs/release-notes-v0.2.0.md` with the suggested title `v0.2.0 - Interactive Session Compare and Guided Debugging`.
+- v0.2.0 release notes live at `docs/release-notes-v0.2.0.md` with the suggested title `v0.2.0 - Interactive Session Compare and Guided Debugging` and include the landed Summary-first, copy-safe, shareability, larger-session image-evidence, and refreshed screenshot content.
+- README and `docs/fixtures.md` identify the screenshot as generated from the bundled sanitized Codex demo in privacy mode; do not use private logs for release screenshots.
+- `docs/benchmarks.md` covers the 100k generated-session/manual performance follow-up and keeps hardware-specific timings in PR/checklist notes rather than release promises.
 - `.github/workflows/release.yml` is tag-driven (`v*`) and publishes a GitHub draft release rather than an immediately public release.
-- GitHub currently has `v0.1.0` as the latest published release; `v0.2.0` should not exist before tagging.
+- Before running any tag or release command, verify whether `v0.2.0` already exists on GitHub. If it exists, stop: do not delete, force-update, re-push, edit, or republish it unless a human release owner explicitly approves the exact plan.
 
 ## Final Local Checks
 
@@ -16,9 +20,15 @@ Use this checklist after the release-prep changes are reviewed and merged to `ma
 git checkout main
 git pull --ff-only origin main
 npm ci
+npm run typecheck
+npm run build:frontend
+npm run workflow:check
+npm run offline:check
 npm run check
-cargo run --quiet -- --version
+cargo +stable run --quiet -- --version
 ```
+
+If `cargo +stable` is unavailable on the release machine, use the configured stable Rust toolchain and record the exact command in the checklist notes.
 
 Expected version output:
 
@@ -28,7 +38,7 @@ perlustron 0.2.0 (build local, parser schema agent-trace-v1, trace schema agent-
 
 ## Exact Tag Command
 
-Run this only after human approval and after the reviewed release-prep commit is on `main`:
+Run this only after human approval, after the reviewed release-prep commit is on `main`, and after confirming `v0.2.0` does not already exist. If the tag or release already exists, stop and get an explicit human decision for a new version, addendum, or retag policy before doing anything irreversible:
 
 ```bash
 git tag -a v0.2.0 -m "v0.2.0 - Interactive Session Compare and Guided Debugging"
@@ -37,7 +47,7 @@ git push origin v0.2.0
 
 ## Workflow Expectations
 
-Pushing `v0.2.0` should trigger `.github/workflows/release.yml`.
+Pushing `v0.2.0` should trigger `.github/workflows/release.yml` only when the tag is new. Do not force-update an existing release tag to retrigger the workflow without explicit human approval.
 
 The `build` matrix should produce these archives and matching `.sha256` files:
 
@@ -104,10 +114,13 @@ Expected archive contents:
 
 ## Draft Release Review
 
-- Replace or augment the generated draft body with `docs/release-notes-v0.2.0.md`.
+- Replace or augment the generated draft body with `docs/release-notes-v0.2.0.md` only if the selected tag includes the documented content.
 - Confirm the release title is `v0.2.0 - Interactive Session Compare and Guided Debugging`.
 - Confirm every archive has a matching `.sha256` asset.
 - Confirm local-first privacy claims remain true: loopback default bind, per-run token-protected API routes, bundled UI assets, no telemetry.
+- Confirm copy-safe references/share summaries preserve structural context without copying raw prompt/tool/result text, and keep the human-review caveat for raw logs.
+- Confirm the README screenshot and any release images are generated from sanitized bundled demo data in privacy mode.
+- Confirm the larger-session image-evidence lookup path was smoke tested or explicitly deferred with a benchmark note.
 - Confirm macOS signing/notarization status is accurately described for this run.
 
 ## GitHub About Text Update
@@ -124,8 +137,10 @@ Recommended replacement text, matching README:
 Local agent-forensics workbench for Codex and Claude Code JSONL sessions: map, timeline, transcript, diff, insights, and redacted reports.
 ```
 
-After the release is approved, update the repository About description with:
+After the release is approved, update the repository About description only with explicit human approval:
 
 ```bash
 gh repo edit BearHuddleston/perlustron --description "Local agent-forensics workbench for Codex and Claude Code JSONL sessions: map, timeline, transcript, diff, insights, and redacted reports."
 ```
+
+Do not run the About update from a release-candidate consolidation PR; it is a separate manual release-owner action.
