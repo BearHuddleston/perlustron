@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=68" />
+    <link rel="stylesheet" href="/styles.css?v=70" />
   </head>
   <body>
     <main id="app">
@@ -40,8 +40,8 @@
       </header>
 
       <nav id="mode-nav" class="mode-nav" aria-label="Default Perlustron modes">
-        <button type="button" data-app-mode="summary">Summary</button>
-        <button class="active" type="button" data-app-mode="map">Map</button>
+        <button class="active" type="button" data-app-mode="summary">Summary</button>
+        <button type="button" data-app-mode="map">Map</button>
         <button type="button" data-app-mode="timeline">Timeline</button>
         <button type="button" data-app-mode="transcript">Transcript</button>
         <label class="utility-mode-picker">
@@ -190,7 +190,7 @@
               <header>
                 <div>
                   <span id="mode-panel-kicker">Mode</span>
-                  <h2 id="mode-panel-title">Timeline</h2>
+                  <h2 id="mode-panel-title">Summary</h2>
                 </div>
                 <small id="mode-panel-summary">Waiting for session data</small>
               </header>
@@ -246,16 +246,22 @@
                   <strong id="turn-timestamp">Live context</strong>
                 </div>
               </div>
+              <div class="event-context-actions" aria-label="Event evidence actions">
+                <button id="stream-copy-ref" type="button">Copy Ref</button>
+                <button id="stream-open-timeline" type="button">Timeline</button>
+                <button id="stream-open-transcript" type="button">Transcript</button>
+                <button id="stream-open-raw" type="button">Raw</button>
+              </div>
               <div class="inspector-summary">
                 <h2 id="stream-title">Select a turn</h2>
                 <div id="stream-images" class="stream-images"></div>
                 <pre id="stream-data">Click an object to inspect its live JSONL record.</pre>
               </div>
             </div>
-            <div class="viewport-controls" aria-hidden="true">
-              <button type="button" data-view-action="zoom-in">+</button>
-              <button type="button" data-view-action="zoom-out">-</button>
-              <button type="button" data-view-action="two-d">2D</button>
+            <div class="viewport-controls" aria-label="Viewport controls">
+              <button type="button" data-view-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
+              <button type="button" data-view-action="zoom-out" aria-label="Zoom out" title="Zoom out">-</button>
+              <button type="button" data-view-action="two-d" aria-label="Switch to 2D overview" title="Switch to 2D overview">2D</button>
             </div>
             <button id="inspect-exit" class="inspect-exit" type="button" data-view-action="overview" title="Exit inspection">Exit inspection</button>
             <div class="live-chip"><span></span>LIVE</div>
@@ -264,6 +270,6 @@
       </div>
 
     </main>
-    <script type="module" src="/app-v130.js"></script>
+    <script type="module" src="/app-v131.js"></script>
   </body>
 </html>

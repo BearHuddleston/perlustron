@@ -322,6 +322,18 @@ async function openEventPopup(page) {
   const compactionRows = await page.locator("#prompt-list .compaction-row").count();
   if (compactionRows > 0) {
     await page.locator("#prompt-list .compaction-row").first().click();
+    await page.waitForTimeout(250);
+    const opened = await page.locator("#event-popup").evaluate((node) => !node.classList.contains("hidden"));
+    if (opened) {
+      return true;
+    }
+  }
+
+  const promptRows = page.locator("#prompt-list .prompt-row");
+  const promptRowCount = await promptRows.count();
+  for (let index = 0; index < Math.min(promptRowCount, 4); index += 1) {
+    await promptRows.nth(index).click();
+    await page.waitForTimeout(250);
     const opened = await page.locator("#event-popup").evaluate((node) => !node.classList.contains("hidden"));
     if (opened) {
       return true;
