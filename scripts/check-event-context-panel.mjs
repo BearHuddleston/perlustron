@@ -29,8 +29,12 @@ expect(
   "Event context minimize button should expose an accessible default label."
 );
 expect(app.includes('queryRequired<HTMLButtonElement>("#stream-minimize")'), "Frontend should query the context minimize button.");
+expect(app.includes('queryRequired<HTMLButtonElement>("#stream-copy-ref")'), "Frontend should query the evidence reference copy button.");
+expect(html.includes('class="event-context-actions"'), "Event context should expose compact evidence action buttons.");
 expect(app.includes("setEventContextCollapsed"), "Frontend should synchronize compact/expanded context state.");
 expect(app.includes('streamMinimize.addEventListener("click"'), "Frontend should wire the context minimize button.");
+expect(app.includes('streamCopyRef.addEventListener("click", copySelectedEventRef)'), "Copy Ref should use the safe evidence-reference helper.");
+expect(app.includes('openSelectedEventMode("timeline")') && app.includes('openSelectedEventMode("transcript")') && app.includes('openSelectedEventMode("raw")'), "Event Context actions should jump to Timeline/Transcript/Raw without reopening the overlay.");
 expect(app.includes("function canShowEventContext"), "Frontend should centralize whether Event Context is allowed to appear.");
 expect(app.includes('return activeAppMode === "map"'), "Event Context should only be allowed in Map mode.");
 expect(app.includes('if (nextMode !== "map") {\n    hideEventPopup();\n  }'), "Switching away from Map should hide the Event Context overlay.");
@@ -49,6 +53,9 @@ expect(/\bbackdrop-filter:\s*[^;]+;/.test(eventPopup), "Event context should pre
 
 expect(eventPopupCompact.length > 0, "Event context should define a compact/minimized state.");
 expect(/\.event-popup\.compact\s+\.context-meta\s*,\s*\.event-popup\.compact\s+\.inspector-summary\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Compact event context should hide detailed metadata and JSON copy.");
+expect(/\.event-context-actions\s*\{[^}]*flex-wrap:\s*wrap\s*;/m.test(styles), "Event evidence actions should wrap instead of overflowing cramped cards.");
+expect(/\.stream-image-placeholder\s*\{[^}]*border:/m.test(styles), "Missing styled empty-media placeholder for Event Context.");
+expect(/\.stream-images\s+figure\.load-error\s+img\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Broken event images should be hidden behind the unavailable-image placeholder.");
 
 if (failures.length) {
   console.error("Event context panel check failed:");
