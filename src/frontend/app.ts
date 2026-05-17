@@ -19,7 +19,7 @@ const MAX_SUBAGENT_INSPECTION_NODES = 72;
 
 type SessionSource = "codex" | "claude";
 type Mode = "overview" | "inspect";
-type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export";
+type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export" | "settings";
 type SessionFilter = "all" | "live" | "pinned";
 type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction";
 type InspectorPanel = "sessions" | "saved" | "raw" | "health";
@@ -38,7 +38,7 @@ type TimerId = ReturnType<typeof setTimeout>;
 
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
 type DefaultAppMode = (typeof DEFAULT_APP_MODES)[number];
-const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export"] as const satisfies readonly AppMode[];
+const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
 const APP_MODE_SET = new Set<AppMode>(APP_MODES);
 const DEFAULT_APP_MODE_SET = new Set<AppMode>(DEFAULT_APP_MODES);
 type FileChangeType = (typeof FILE_CHANGE_TYPES)[number];
@@ -5026,6 +5026,9 @@ function renderActiveModePanel(): void {
     case "export":
       renderExportModePanel();
       return;
+    case "settings":
+      renderSettingsModePanel();
+      return;
   }
 }
 
@@ -5740,6 +5743,31 @@ function renderExportModePanel(): void {
   modePanelContent.replaceChildren(grid);
 }
 
+function renderSettingsModePanel(): void {
+  const current = currentGraph();
+  modePanelSummary.textContent = "Local observatory settings";
+  const grid = document.createElement("div");
+  grid.className = "mode-card-grid";
+  grid.append(
+    modeCard("Session", [
+      `Source: ${sourceLabel(current.source)}`,
+      `Session: ${activeSessionPath ? shortPath(activeSessionPath) : shortPath(current.sessionPath) || "latest"}`,
+      `Live updates: ${isTailing ? (liveEventsConnected ? "SSE stream" : "fallback polling") : "paused"}`,
+    ]),
+    modeCard("Renderer", [
+      "Three.js instancing",
+      `Mode panel: ${activeAppMode === "settings" ? "visible" : "hidden"}`,
+      `Raw JSON: ${rawExpanded ? "visible" : "collapsed"}`,
+    ]),
+    modeCard("Backend", [
+      "Rust Axum JSONL parser",
+      `Parser: ${current.parserHealth.parserVersion} / ${current.parserHealth.schemaVersion}`,
+      `API token required: ${current.privacySummary.apiTokenRequired ? "yes" : "no"}`,
+    ])
+  );
+  modePanelContent.replaceChildren(grid);
+}
+
 function modeCard(title: string, lines: string[] = []): HTMLElement {
   const card = document.createElement("section");
   card.className = "mode-card";
@@ -6219,6 +6247,9 @@ function selectAppMode(nextMode: AppMode): void {
     exitInspectMode({ preserveCamera: true });
     return;
   }
+  if (nextMode === "settings") {
+    return;
+  }
   openSyntheticStream("EXPORT", "Export reports", exportModeText());
 }
 
@@ -6576,11 +6607,7 @@ function setupControls() {
   });
 
   settingsButton.addEventListener("click", () => {
-    openSyntheticStream(
-      "SETTINGS",
-      "Local observatory settings",
-      `Source: ${sourceLabel()}\nSession: ${activeSessionPath ? shortPath(activeSessionPath) : "latest"}\nRenderer: Three.js instancing\nBackend: Rust Axum JSONL parser\nLive updates: ${isTailing ? (liveEventsConnected ? "SSE stream" : "fallback polling") : "paused"}\nRaw JSON: ${rawExpanded ? "visible" : "collapsed"}`
-    );
+    selectAppMode("settings");
   });
 
   openEditorButton.addEventListener("click", async () => {

@@ -365,6 +365,37 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   assert(!evidence.visibleUrl.includes("token="), "Open Evidence should keep the visible URL token-stripped");
 }
 
+async function assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server) {
+  await page.goto(`${server.baseUrl}/?mode=summary&token=${encodeURIComponent(server.token)}`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !window.location.search.includes("token="), null, { timeout: UI_TIMEOUT_MS });
+  await waitForLoadedDemo(page);
+  await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Summary", null, {
+    timeout: UI_TIMEOUT_MS,
+  });
+
+  await page.click("#settings-button");
+  await page.waitForTimeout(250);
+
+  const settings = await page.evaluate(() => ({
+    utilityMode: document.querySelector("#utility-mode-select")?.value,
+    panelHidden: document.querySelector("#mode-panel")?.classList.contains("hidden"),
+    panelTitle: document.querySelector("#mode-panel-title")?.textContent?.trim(),
+    panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim(),
+    panelText: document.querySelector("#mode-panel")?.textContent || "",
+    eventPopupHidden: document.querySelector("#event-popup")?.classList.contains("hidden"),
+    visibleUrl: window.location.href,
+  }));
+
+  assert(settings.utilityMode === "settings", "Settings button should route Summary users to the Settings utility surface");
+  assert(settings.panelHidden === false, "Settings button should open a visible mode panel outside Map mode");
+  assert(settings.panelTitle === "Settings", "Settings button should show a visible Settings panel from Summary");
+  assert(settings.panelSummary === "Local observatory settings", "Settings panel should identify the local observatory control surface");
+  assert(settings.panelText.includes("Renderer") && settings.panelText.includes("Backend"), "Settings panel should show renderer/backend details");
+  assert(settings.eventPopupHidden === true, "Settings button should not reveal Map-only Event Context outside Map mode");
+  assert(settings.visibleUrl.includes("mode=settings"), "Settings button should deep-link the visible Settings surface");
+  assert(!settings.visibleUrl.includes("token="), "Settings button should keep the visible URL token-stripped");
+}
+
 async function openEventPopup(page) {
   await page.click('[data-app-mode="map"]');
   await page.waitForFunction(() => document.querySelector("#mode-panel")?.classList.contains("hidden"), null, {
@@ -472,6 +503,7 @@ async function testBrowserUi(server, browser) {
     assert(chrome.modeButtons.includes("Transcript"), "Transcript tab should render");
     await assertSummaryDeepLink(page, server);
     await assertSummaryOpenEvidenceRoutesToRaw(page, server);
+    await assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server);
     for (const tab of ["sessions", "saved", "raw", "health"]) {
       assert(chrome.inspectorTabs.includes(tab), `Inspector tab ${tab} should render`);
     }
