@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=23750121480590" />
+    <link rel="stylesheet" href="/styles.css?v=270073775940367" />
   </head>
   <body>
     <main id="app">
@@ -68,10 +68,6 @@
             <button type="button" data-inspector-tab="saved" aria-label="Saved Views" title="Saved views" aria-expanded="false">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
               <span>Saved</span>
-            </button>
-            <button type="button" data-inspector-tab="raw" aria-label="Raw JSON" title="Raw JSON" aria-expanded="false">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M16 3l4 4-4 4"/><path d="M8 21l8-18"/></svg>
-              <span>Raw JSON</span>
             </button>
             <button type="button" data-inspector-tab="health" aria-label="Parser Health" title="Parser health" aria-expanded="false">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-4"/><path d="M12 16V8"/><path d="M16 16v-6"/></svg>
@@ -139,14 +135,6 @@
                 <button type="button" data-saved-view="files"><strong>File activity</strong><small id="saved-files-summary">0 file operations</small></button>
                 <button type="button" data-saved-view="latest"><strong>Latest prompt</strong><small id="saved-latest-summary">Waiting for session data</small></button>
               </section>
-            </section>
-
-            <section class="inspector-section" data-inspector-panel="raw">
-              <div class="raw-json">
-                <header>Raw Payload <label><input id="raw-json-toggle" type="checkbox" aria-label="Toggle raw JSON preview" /> </label></header>
-                <pre id="raw-json-preview">{}</pre>
-                <footer><span id="raw-json-size">0 KB</span><button id="open-editor-button" type="button">Copy JSON</button></footer>
-              </div>
             </section>
 
             <section class="inspector-section" data-inspector-panel="health">
@@ -271,6 +259,6 @@
       </div>
 
     </main>
-    <script type="module" src="/app-v23750121480590.js"></script>
+    <script type="module" src="/app-v270073775940367.js"></script>
   </body>
 </html>

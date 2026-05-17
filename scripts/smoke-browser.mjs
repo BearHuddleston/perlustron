@@ -344,7 +344,6 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
 
   const evidence = await page.evaluate(() => {
     const panelJsonText = document.querySelector("#mode-panel-content pre")?.textContent || "";
-    const rawJsonText = document.querySelector("#raw-json-preview")?.textContent || "";
     const parseObject = (text) => {
       try {
         const payload = JSON.parse(text);
@@ -359,8 +358,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
       panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim(),
       panelJsonText,
       panelJsonObject: parseObject(panelJsonText),
-      rawJsonText,
-      rawJsonObject: parseObject(rawJsonText),
+      rawJsonPreviewExists: Boolean(document.querySelector("#raw-json-preview")),
       eventPopupHidden: document.querySelector("#event-popup")?.classList.contains("hidden"),
       visibleUrl: window.location.href,
     };
@@ -368,8 +366,8 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   assert(evidence.utilityMode === "raw", "Open Evidence should route to the Raw evidence surface");
   assert(evidence.panelHidden === false, "Open Evidence should show a visible evidence panel");
   assert(evidence.panelSummary === "Selected event", "Open Evidence should preserve the selected event in Raw mode");
-  assert(evidence.panelJsonObject && evidence.rawJsonObject, "Open Evidence should expose parseable selected event JSON");
-  assert(evidence.panelJsonText === evidence.rawJsonText, "Open Evidence should keep panel and Raw preview on the same selected payload");
+  assert(evidence.panelJsonObject, "Open Evidence should expose parseable selected event JSON");
+  assert(!evidence.rawJsonPreviewExists, "Removed Raw JSON inspector preview should stay out of the DOM");
   assert(evidence.eventPopupHidden === true, "Open Evidence should not reveal Map-only Event Context outside Map mode");
   assert(evidence.visibleUrl.includes("mode=raw"), "Open Evidence should update the visible URL to the evidence mode");
   assert(!evidence.visibleUrl.includes("token="), "Open Evidence should keep the visible URL token-stripped");
@@ -538,13 +536,13 @@ async function testBrowserUi(server, browser) {
     await assertSummaryDeepLink(page, server);
     await assertSummaryOpenEvidenceRoutesToRaw(page, server);
     await assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server);
-    for (const tab of ["sessions", "saved", "raw", "health"]) {
+    for (const tab of ["sessions", "saved", "health"]) {
       assert(chrome.inspectorTabs.includes(tab), `Inspector tab ${tab} should render`);
     }
+    assert(!chrome.inspectorTabs.includes("raw"), "Removed Raw JSON inspector tab should not render");
     assert(!chrome.visibleUrl.includes("token="), "token should be removed from the visible browser URL");
 
     await assertInspectorTab(page, "saved");
-    await assertInspectorTab(page, "raw");
     await assertInspectorTab(page, "health");
     await assertInspectorTab(page, "sessions");
 
