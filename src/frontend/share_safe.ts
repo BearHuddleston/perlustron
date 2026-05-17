@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+import { compactText, formatNumber } from "./utils/format";
+
 export interface SafeReferenceSummaryInput {
   role?: string | null;
   eventType?: string | null;
@@ -60,7 +62,7 @@ export function redactionSafeClipboardText(value: string | null | undefined, max
     .replace(POSIX_PRIVATE_PATH_PATTERN, redactedPathLabel)
     .replace(LONG_BASE64_PATTERN, "[REDACTED_BASE64]")
     .replace(UPPERCASE_SECRET_SENTINEL_PATTERN, "[REDACTED_PRIVATE_TEXT]");
-  return compactClipboardText(redacted, maxChars);
+  return compactText(redacted, maxChars);
 }
 
 export function safeReferenceSummary(input: SafeReferenceSummaryInput): string {
@@ -100,7 +102,7 @@ export function copySafeShareSummaryText(input: CopySafeShareSummaryInput): stri
     "Perlustron copy-safe share summary",
     input.source ? `source: ${safeField(input.source)}` : null,
     input.sessionName ? `session: ${redactionSafeClipboardText(input.sessionName, 140)}` : null,
-    `activity: ${numberOrUnknown(input.totalTurns)} turns / ${numberOrUnknown(input.callCount)} tool calls / ${numberOrUnknown(input.fileChangeCount)} file changes`,
+    `activity: ${formatNumber(input.totalTurns, "unknown")} turns / ${formatNumber(input.callCount, "unknown")} tool calls / ${formatNumber(input.fileChangeCount, "unknown")} file changes`,
     input.latestEventIndex !== null && input.latestEventIndex !== undefined ? `latest_event_index: ${input.latestEventIndex}` : null,
     input.cliContext ? `cli: ${redactionSafeClipboardText(input.cliContext, 120)}` : null,
     `perlustron: parser ${safeField(input.parserVersion || "unknown")} / schema ${safeField(input.schemaVersion || "unknown")}`,
@@ -108,7 +110,7 @@ export function copySafeShareSummaryText(input: CopySafeShareSummaryInput): stri
     `raw_caution: ${redactionSafeClipboardText(input.rawLogCaution || "Raw logs can contain prompts, paths, tool output, images, and credentials.", 180)}`,
     `safe_surfaces: sanitized graph/export/copy-safe references are safer than raw logs, but still require human judgment before external sharing`,
     `sanitized_graph: ${redactionSafeClipboardText(input.sanitizedGraphNote || "Use sanitized graph/export surfaces for review-friendly sharing.", 180)}`,
-    `redactions: ${numberOrUnknown(input.redactedFieldCount)} fields; images: ${numberOrUnknown(input.imageCount)}; api_token_required: ${input.apiTokenRequired ? "yes (value not copied)" : "no"}`,
+    `redactions: ${formatNumber(input.redactedFieldCount, "unknown")} fields; images: ${formatNumber(input.imageCount, "unknown")}; api_token_required: ${input.apiTokenRequired ? "yes (value not copied)" : "no"}`,
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
@@ -118,22 +120,8 @@ function normalizeClipboardText(value: string | null | undefined): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
-function compactClipboardText(value: string, maxChars: number): string {
-  if (maxChars === Number.POSITIVE_INFINITY || value.length <= maxChars) {
-    return value;
-  }
-  if (maxChars <= 1) {
-    return "…";
-  }
-  return `${value.slice(0, maxChars - 1).replace(/\s+$/, "")}…`;
-}
-
 function safeField(value: string | null | undefined): string {
   return redactionSafeClipboardText(value, 120);
-}
-
-function numberOrUnknown(value: number | null | undefined): string {
-  return value === null || value === undefined ? "unknown" : value.toLocaleString();
 }
 
 function redactedPathLabel(value: string): string {

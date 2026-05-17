@@ -20,10 +20,7 @@ Wave 3 consolidation note: Summary-first evidence routing, copy-safe references/
 git checkout main
 git pull --ff-only origin main
 npm ci
-npm run typecheck
 npm run build:frontend
-npm run workflow:check
-npm run offline:check
 npm run check
 cargo +stable run --quiet -- --version
 ```

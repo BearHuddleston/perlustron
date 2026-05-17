@@ -2,26 +2,16 @@
 
 import { readFileSync } from "node:fs";
 
+import { createCheck, cssBlockFor } from "./check-helpers.mjs";
+
 const html = readFileSync("static/index.html", "utf8");
 const styles = readFileSync("static/styles.css", "utf8");
 const app = readFileSync("src/frontend/app.ts", "utf8");
 
-const failures = [];
+const { expect, finish } = createCheck("Event context panel");
 
-function expect(condition, message) {
-  if (!condition) {
-    failures.push(message);
-  }
-}
-
-function blockFor(selector) {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = styles.match(new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`, "m"));
-  return match?.groups?.body ?? "";
-}
-
-const eventPopup = blockFor(".event-popup");
-const eventPopupCompact = blockFor(".event-popup.compact");
+const eventPopup = cssBlockFor(styles, ".event-popup");
+const eventPopupCompact = cssBlockFor(styles, ".event-popup.compact");
 
 expect(html.includes('id="stream-minimize"'), "Event context header should include a minimize/expand button.");
 expect(
@@ -57,10 +47,4 @@ expect(/\.event-context-actions\s*\{[^}]*flex-wrap:\s*wrap\s*;/m.test(styles), "
 expect(/\.stream-image-placeholder\s*\{[^}]*border:/m.test(styles), "Missing styled empty-media placeholder for Event Context.");
 expect(/\.stream-images\s+figure\.load-error\s+img\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Broken event images should be hidden behind the unavailable-image placeholder.");
 
-if (failures.length) {
-  console.error("Event context panel check failed:");
-  failures.forEach((failure) => console.error(`- ${failure}`));
-  process.exit(1);
-}
-
-console.log("Event context panel check passed");
+finish();

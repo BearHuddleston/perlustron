@@ -7,15 +7,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { createCheck } from "./check-helpers.mjs";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const failures = [];
-
-function expect(condition, message) {
-  if (!condition) {
-    failures.push(message);
-  }
-}
+const { expect, fail, finish } = createCheck("Copy-safe share");
 
 const app = readFileSync(path.join(repoRoot, "src/frontend/app.ts"), "utf8");
 expect(app.includes('modeButton("Copy Share Summary"'), "Summary should expose a Copy Share Summary action.");
@@ -102,6 +98,8 @@ try {
         apiTokenRequired: true,
       });
       const scrubbed = redactionSafeClipboardText(hostileText, 500);
+      const truncated = redactionSafeClipboardText("abcdefghijklmnop", 10);
+      const tinyTruncated = redactionSafeClipboardText("abcdefghijklmnop", 2);
       const combined = [structuralSummary, reference, shareSummary, scrubbed].join("\\n---\\n");
 
       for (const sentinel of forbidden) {
@@ -118,6 +116,8 @@ try {
       expect(shareSummary.includes("raw_logs: requires human review before sharing"), "Share summary should say raw logs need review.");
       expect(shareSummary.includes("safe_surfaces:"), "Share summary should distinguish safer sanitized/copy-safe surfaces.");
       expect(shareSummary.includes("human judgment"), "Share summary should preserve human-review caveat.");
+      expect(truncated === "abcdefg...", "Truncated clipboard text should use an ASCII marker and respect max length.");
+      expect(tinyTruncated === "..", "Tiny clipboard truncation should stay within the requested max length.");
 
       export { failures };
     `,
@@ -125,17 +125,11 @@ try {
   );
   await build({ entryPoints: [entryPath], bundle: true, platform: "node", format: "esm", outfile: outPath, logLevel: "silent" });
   const result = await import(pathToFileURL(outPath).href);
-  failures.push(...result.failures);
+  result.failures.forEach((failure) => fail(failure));
 } catch (error) {
-  failures.push(error.stack || error.message || String(error));
+  fail(error.stack || error.message || String(error));
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-if (failures.length) {
-  console.error("Copy-safe share check failed:");
-  failures.forEach((failure) => console.error(`- ${failure}`));
-  process.exit(1);
-}
-
-console.log("Copy-safe share check passed");
+finish();

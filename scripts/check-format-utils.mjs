@@ -6,29 +6,21 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
+import { createCheck } from "./check-helpers.mjs";
+
 const appPath = "src/frontend/app.ts";
 const formatPath = "src/frontend/utils/format.ts";
 const app = readFileSync(appPath, "utf8");
-const failures = [];
-
-function expect(condition, message) {
-  if (!condition) {
-    failures.push(message);
-  }
-}
-
-function expectEqual(actual, expected, message) {
-  if (actual !== expected) {
-    failures.push(`${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-  }
-}
+const { expect, expectEqual, finish, hasFailures } = createCheck("Format utilities");
 
 const expectedExports = [
+  "compactText",
   "durationLabel",
   "escapeHtml",
   "formatBytes",
   "formatCountDelta",
   "formatDuration",
+  "formatNumber",
   "formatOptionalPercent",
   "formatSessionModified",
   "recordsLabel",
@@ -47,10 +39,8 @@ if (existsSync(formatPath)) {
   }
 }
 
-if (failures.length) {
-  console.error("Format utilities check failed:");
-  failures.forEach((failure) => console.error(`- ${failure}`));
-  process.exit(1);
+if (hasFailures()) {
+  finish();
 }
 
 const tempDir = mkdtempSync(join(tmpdir(), "perlustron-format-utils-"));
@@ -91,16 +81,16 @@ try {
   expectEqual(format.formatCountDelta({ left: 5, right: 5, delta: 0 }), "5 -> 5 (0)", "formatCountDelta should keep zero deltas unsigned");
   expectEqual(format.formatOptionalPercent(null), "n/a", "formatOptionalPercent should label null values as n/a");
   expectEqual(format.formatOptionalPercent(12.4), "12%", "formatOptionalPercent should round to zero decimals");
+  expectEqual(format.formatNumber(null), "n/a", "formatNumber should use n/a as the default fallback");
+  expectEqual(format.formatNumber(null, "unknown"), "unknown", "formatNumber should allow a custom fallback");
+  expectEqual(format.formatNumber(1234), (1234).toLocaleString(), "formatNumber should use locale grouping for numbers");
+  expectEqual(format.compactText("abcdefghijklmnop", 10), "abcdefg...", "compactText should keep marker within max length");
+  expectEqual(format.compactText("abcdefghijklmnop", 2), "..", "compactText should handle tiny limits");
+  expectEqual(format.compactText("short", 10), "short", "compactText should preserve short values");
   expectEqual(format.escapeHtml('&<>"\''), "&amp;&lt;&gt;&quot;'", "escapeHtml should preserve the existing escaped characters");
   expectEqual(format.formatSessionModified("not-a-date"), "", "formatSessionModified should hide invalid dates");
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-if (failures.length) {
-  console.error("Format utilities check failed:");
-  failures.forEach((failure) => console.error(`- ${failure}`));
-  process.exit(1);
-}
-
-console.log("Format utilities check passed");
+finish();
