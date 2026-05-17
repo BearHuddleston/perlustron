@@ -958,7 +958,9 @@ const CAMERA_FLY_MIN_SPEED = 16;
 const CAMERA_FLY_MAX_SPEED = 70;
 const CAMERA_FLY_DISTANCE_FACTOR = 0.72;
 const CAMERA_FLY_FAST_MULTIPLIER = 2.6;
-const CAMERA_FLY_KEY_CODES = new Set(["KeyW", "KeyA", "KeyS", "KeyD"]);
+const CAMERA_FLY_MOVE_KEY_CODES = new Set(["KeyW", "KeyA", "KeyS", "KeyD"]);
+const CAMERA_FLY_UP_KEY_CODE = "Space";
+const CAMERA_FLY_DOWN_KEY_CODES = new Set(["ControlLeft", "ControlRight"]);
 const CAMERA_FLY_FAST_KEY_CODES = new Set(["ShiftLeft", "ShiftRight"]);
 const CAMERA_FLY_LOOK_SENSITIVITY = 0.0032;
 const CAMERA_FLY_LOOK_MIN_TARGET_DISTANCE = 1.4;
@@ -4038,7 +4040,8 @@ function render() {
 function updateCameraFlight(delta: number): void {
   const forwardInput = (activeCameraFlyKeys.has("KeyW") ? 1 : 0) - (activeCameraFlyKeys.has("KeyS") ? 1 : 0);
   const strafeInput = (activeCameraFlyKeys.has("KeyD") ? 1 : 0) - (activeCameraFlyKeys.has("KeyA") ? 1 : 0);
-  if (!forwardInput && !strafeInput) {
+  const verticalInput = (activeCameraFlyKeys.has(CAMERA_FLY_UP_KEY_CODE) ? 1 : 0) - (isCameraFlyDownActive() ? 1 : 0);
+  if (!forwardInput && !strafeInput && !verticalInput) {
     return;
   }
 
@@ -4048,7 +4051,8 @@ function updateCameraFlight(delta: number): void {
   cameraFlyMove
     .set(0, 0, 0)
     .addScaledVector(cameraFlyForward, forwardInput)
-    .addScaledVector(cameraFlyRight, strafeInput);
+    .addScaledVector(cameraFlyRight, strafeInput)
+    .addScaledVector(camera.up, verticalInput);
   if (cameraFlyMove.lengthSq() < 0.000001) {
     return;
   }
@@ -6634,7 +6638,6 @@ function shortcutsText(): string {
     "t transcript",
     "h health",
     "i insights",
-    "d diff",
     "r raw",
     "e export",
     "Esc close inspection",
@@ -6913,8 +6916,6 @@ function modeForShortcut(key: string): AppMode | null {
       return "health";
     case "i":
       return "insights";
-    case "d":
-      return "diff";
     case "r":
       return "raw";
     case "e":
@@ -6936,14 +6937,21 @@ function handleCameraFlyKeyup(event: KeyboardEvent): void {
   if (!isCameraFlyCode(event.code)) {
     return;
   }
-  activeCameraFlyKeys.delete(event.code);
-  event.preventDefault();
+  const wasActive = activeCameraFlyKeys.delete(event.code);
+  if (wasActive) {
+    event.preventDefault();
+  }
 }
 
 function shouldHandleCameraFlyKey(event: KeyboardEvent): boolean {
+  const isVerticalKey = isCameraFlyVerticalCode(event.code);
+  if (isVerticalKey && (activeAppMode !== "map" || isKeyboardControlTarget(event.target))) {
+    return false;
+  }
+  const allowsCtrlModifier = isVerticalKey || (activeAppMode === "map" && isCameraFlyDownActive());
   return (
     isCameraFlyCode(event.code) &&
-    !event.ctrlKey &&
+    (!event.ctrlKey || allowsCtrlModifier) &&
     !event.metaKey &&
     !event.altKey &&
     !isTextEntryTarget(event.target)
@@ -6951,11 +6959,27 @@ function shouldHandleCameraFlyKey(event: KeyboardEvent): boolean {
 }
 
 function isCameraFlyCode(code: string): boolean {
-  return CAMERA_FLY_KEY_CODES.has(code) || CAMERA_FLY_FAST_KEY_CODES.has(code);
+  return isCameraFlyMoveCode(code) || isCameraFlyVerticalCode(code) || CAMERA_FLY_FAST_KEY_CODES.has(code);
+}
+
+function isCameraFlyMoveCode(code: string): boolean {
+  return CAMERA_FLY_MOVE_KEY_CODES.has(code);
+}
+
+function isCameraFlyVerticalCode(code: string): boolean {
+  return code === CAMERA_FLY_UP_KEY_CODE || isCameraFlyDownCode(code);
+}
+
+function isCameraFlyDownCode(code: string): boolean {
+  return CAMERA_FLY_DOWN_KEY_CODES.has(code);
 }
 
 function isCameraFlyFastActive(): boolean {
   return activeCameraFlyKeys.has("ShiftLeft") || activeCameraFlyKeys.has("ShiftRight");
+}
+
+function isCameraFlyDownActive(): boolean {
+  return activeCameraFlyKeys.has("ControlLeft") || activeCameraFlyKeys.has("ControlRight");
 }
 
 function clearCameraFlyKeys(): void {
@@ -6973,6 +6997,13 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
+function isKeyboardControlTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (isTextEntryTarget(target) || Boolean(target.closest("button, select, a[href]")))
   );
 }
 
