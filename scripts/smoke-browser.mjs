@@ -313,6 +313,58 @@ async function assertSummaryDeepLink(page, server) {
   assert(!summary.visibleUrl.includes("token="), "Summary deep link should strip token from the visible URL");
 }
 
+async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
+  await page.goto(`${server.baseUrl}/?mode=summary&token=${encodeURIComponent(server.token)}`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !window.location.search.includes("token="), null, { timeout: UI_TIMEOUT_MS });
+  await waitForLoadedDemo(page);
+  await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Summary", null, {
+    timeout: UI_TIMEOUT_MS,
+  });
+
+  const hasEvidenceCta = await page.evaluate(() =>
+    Array.from(document.querySelectorAll(".summary-triage .mode-action-button")).some(
+      (button) => button.textContent?.trim() === "Open Evidence"
+    )
+  );
+  assert(hasEvidenceCta, "Summary should expose an Open Evidence CTA");
+  await page.locator(".summary-triage .mode-action-button", { hasText: "Open Evidence" }).click();
+  await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Raw", null, {
+    timeout: UI_TIMEOUT_MS,
+  });
+
+  const evidence = await page.evaluate(() => {
+    const panelJsonText = document.querySelector("#mode-panel-content pre")?.textContent || "";
+    const rawJsonText = document.querySelector("#raw-json-preview")?.textContent || "";
+    const parseObject = (text) => {
+      try {
+        const payload = JSON.parse(text);
+        return payload && typeof payload === "object" && !Array.isArray(payload);
+      } catch {
+        return false;
+      }
+    };
+    return {
+      utilityMode: document.querySelector("#utility-mode-select")?.value,
+      panelHidden: document.querySelector("#mode-panel")?.classList.contains("hidden"),
+      panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim(),
+      panelJsonText,
+      panelJsonObject: parseObject(panelJsonText),
+      rawJsonText,
+      rawJsonObject: parseObject(rawJsonText),
+      eventPopupHidden: document.querySelector("#event-popup")?.classList.contains("hidden"),
+      visibleUrl: window.location.href,
+    };
+  });
+  assert(evidence.utilityMode === "raw", "Open Evidence should route to the Raw evidence surface");
+  assert(evidence.panelHidden === false, "Open Evidence should show a visible evidence panel");
+  assert(evidence.panelSummary === "Selected event", "Open Evidence should preserve the selected event in Raw mode");
+  assert(evidence.panelJsonObject && evidence.rawJsonObject, "Open Evidence should expose parseable selected event JSON");
+  assert(evidence.panelJsonText === evidence.rawJsonText, "Open Evidence should keep panel and Raw preview on the same selected payload");
+  assert(evidence.eventPopupHidden === true, "Open Evidence should not reveal Map-only Event Context outside Map mode");
+  assert(evidence.visibleUrl.includes("mode=raw"), "Open Evidence should update the visible URL to the evidence mode");
+  assert(!evidence.visibleUrl.includes("token="), "Open Evidence should keep the visible URL token-stripped");
+}
+
 async function openEventPopup(page) {
   await page.click('[data-app-mode="map"]');
   await page.waitForFunction(() => document.querySelector("#mode-panel")?.classList.contains("hidden"), null, {
@@ -419,6 +471,7 @@ async function testBrowserUi(server, browser) {
     assert(chrome.modeButtons.includes("Timeline"), "Timeline tab should render");
     assert(chrome.modeButtons.includes("Transcript"), "Transcript tab should render");
     await assertSummaryDeepLink(page, server);
+    await assertSummaryOpenEvidenceRoutesToRaw(page, server);
     for (const tab of ["sessions", "saved", "raw", "health"]) {
       assert(chrome.inspectorTabs.includes(tab), `Inspector tab ${tab} should render`);
     }

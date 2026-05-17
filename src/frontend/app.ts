@@ -5993,13 +5993,22 @@ async function ensureUnknownsReportLoaded(force = false): Promise<UnknownsReport
   return unknownsReportPromise;
 }
 
-function focusEventByLine(lineNumber: number | null | undefined, title: string, payload: unknown): void {
+function focusEventByLine(lineNumber: number | null | undefined, title: string, payload: unknown, destination: AppMode = "raw"): void {
   if (lineNumber) {
     const row = modeTimelineRows().find((candidate) => candidate.lineNumber === lineNumber);
     if (row) {
       inspectModeRow(row);
+      if (row.node) {
+        openSelectedEventMode(destination);
+      } else if (destination !== "map") {
+        selectAppMode(destination);
+        setRawJsonPayload(row.source);
+      }
       return;
     }
+  }
+  if (destination !== "map") {
+    selectAppMode(destination);
   }
   openSyntheticStream("RAW", title, JSON.stringify(payload, null, 2));
   setRawJsonPayload(payload);
