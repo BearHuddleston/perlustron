@@ -40,6 +40,11 @@ type TimerId = ReturnType<typeof setTimeout>;
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
 type DefaultAppMode = (typeof DEFAULT_APP_MODES)[number];
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
+const SESSION_FILTERS = ["all", "live", "pinned"] as const satisfies readonly SessionFilter[];
+const METRICS = ["error", "long", "file", "diff", "artifact", "compaction"] as const satisfies readonly Metric[];
+const INSPECTOR_PANELS = ["sessions", "saved", "raw", "health"] as const satisfies readonly InspectorPanel[];
+const SAVED_VIEWS = ["errors", "files", "latest"] as const satisfies readonly SavedView[];
+const VIEW_ACTIONS = ["zoom-in", "zoom-out", "two-d", "overview"] as const satisfies readonly ViewAction[];
 const APP_MODE_SET = new Set<AppMode>(APP_MODES);
 const DEFAULT_APP_MODE_SET = new Set<AppMode>(DEFAULT_APP_MODES);
 type FileChangeType = (typeof FILE_CHANGE_TYPES)[number];
@@ -770,8 +775,8 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function datasetValue<T extends string>(value: string | undefined, fallback: T): T {
-  return (value ?? fallback) as T;
+function oneOf<T extends string>(values: readonly T[], value: string | undefined, fallback: T): T {
+  return value !== undefined && values.includes(value as T) ? (value as T) : fallback;
 }
 
 function emptyLiveCues(): LiveTailCues {
@@ -1147,16 +1152,31 @@ const localSessionToken = (() => {
   }
 })();
 
-function sessionApiUrl(path: string, { includeSession = true }: { includeSession?: boolean } = {}): URL {
-  const url = new URL(path, window.location.origin);
-  url.searchParams.set("source", activeSource);
-  if (includeSession && activeSessionPath) {
-    url.searchParams.set("session", activeSessionPath);
+interface SessionQueryOptions {
+  includeSession?: boolean;
+  includeSource?: boolean;
+  sessionPath?: string | null;
+}
+
+function applySessionQuery(
+  url: URL,
+  { includeSession = true, includeSource = true, sessionPath = activeSessionPath }: SessionQueryOptions = {}
+): URL {
+  if (includeSource) {
+    url.searchParams.set("source", activeSource);
+  }
+  if (includeSession && sessionPath) {
+    url.searchParams.set("session", sessionPath);
   }
   if (localSessionToken) {
     url.searchParams.set("token", localSessionToken);
   }
   return url;
+}
+
+function sessionApiUrl(path: string, options: SessionQueryOptions = {}): URL {
+  const url = new URL(path, window.location.origin);
+  return applySessionQuery(url, options);
 }
 
 function isCurrentSessionLoad(generation: number): boolean {
@@ -1766,7 +1786,6 @@ function rebuildScene({ preserveView = false, preserveInspector = false }: { pre
   if (previousMotion) {
     restoreNodeMotionState(previousMotion);
   }
-  refreshActiveConnectors();
   createInstances();
   createPointMarkers();
   createConnectors();
@@ -1965,7 +1984,6 @@ function patchExistingScene(): boolean {
   connectors = built.connectors;
   indexSceneNodes();
   setLayoutTargets({ preserveCamera: true });
-  refreshActiveConnectors();
   updateConnectorGeometry();
   updateGraphChrome();
   syncInstanceColors();
@@ -2103,6 +2121,8 @@ type PromptActivityUnit =
 interface OverviewLayoutPlan {
   above: number;
   below: number;
+  promptCalls: CallNode[];
+  subagentBranches: SubagentBranch[];
   activityUnits: PromptActivityUnit[];
   activityDepth: number;
   fileRows: number;
@@ -2172,6 +2192,8 @@ function overviewLayoutPlan(source: SessionGraph, item: TimelineEntry): Overview
     return {
       above: OVERVIEW_MIN_ABOVE_Z,
       below: OVERVIEW_MIN_BELOW_Z,
+      promptCalls: [],
+      subagentBranches: [],
       activityUnits: [],
       activityDepth: 0,
       fileRows: 0,
@@ -2194,6 +2216,8 @@ function overviewLayoutPlan(source: SessionGraph, item: TimelineEntry): Overview
   return {
     above: Math.max(OVERVIEW_MIN_ABOVE_Z, above),
     below: Math.max(OVERVIEW_MIN_BELOW_Z, below),
+    promptCalls,
+    subagentBranches,
     activityUnits,
     activityDepth,
     fileRows,
@@ -2446,8 +2470,7 @@ function buildNodes(source: SessionGraph): BuiltScene {
 
     const { prompt, promptIndex } = item;
     const promptNodeStartIndex = allNodes.length;
-    const promptCalls = callsWithLiveCues(source, prompt);
-    const subagentBranches = subagentBranchesForCalls(promptCalls);
+    const { promptCalls, subagentBranches } = plan;
     const fileChanges = prompt.fileChanges || [];
     const promptIsNew = prompt.eventIndex > newEventFloor;
     const promptNode: PromptSceneNode = {
@@ -2587,15 +2610,16 @@ function buildNodes(source: SessionGraph): BuiltScene {
       });
     });
 
-    const nodeIds = new Set<string>();
+    const promptNodesById = new Map<string, SceneNode>();
     for (let nodeIndex = promptNodeStartIndex; nodeIndex < allNodes.length; nodeIndex += 1) {
-      nodeIds.add(allNodes[nodeIndex].id);
+      const node = allNodes[nodeIndex];
+      promptNodesById.set(node.id, node);
     }
     const fileParentIdByChangeId = new Map<string, string>();
     const fileChangesByParent = new Map<string, FileChangeNode[]>();
     fileChanges.forEach((change) => {
       const parentId =
-        change.callId && promptCallIds.has(change.callId) && nodeIds.has(change.callId)
+        change.callId && promptCallIds.has(change.callId) && promptNodesById.has(change.callId)
           ? change.callId
           : activityAnchorIdForEvent(change.eventIndex, activityAnchors, promptNode.id);
       fileParentIdByChangeId.set(change.id, parentId);
@@ -2606,7 +2630,7 @@ function buildNodes(source: SessionGraph): BuiltScene {
 
     fileChanges.forEach((change, changeIndex) => {
       const parentId = fileParentIdByChangeId.get(change.id) ?? promptNode.id;
-      const parentNode = allNodes.find((node) => node.id === parentId) ?? promptNode;
+      const parentNode = promptNodesById.get(parentId) ?? promptNode;
       const siblingFileChanges = fileChangesByParent.get(parentId) ?? [change];
       const siblingIndex = Math.max(
         0,
@@ -3143,8 +3167,10 @@ function createPulseMesh(
 }
 
 function setLayoutTargets({ preserveCamera = false } = {}) {
+  let inspectLayout: InspectLayout | undefined;
   if (mode === "inspect" && activePromptId) {
     const layout = buildInspectLayout(activePromptId);
+    inspectLayout = layout;
     const placementById = new Map(layout.placements.map((placement) => [placement.node.id, placement]));
     nodes.forEach((node) => {
       const placement = placementById.get(node.id);
@@ -3175,15 +3201,15 @@ function setLayoutTargets({ preserveCamera = false } = {}) {
     }
   }
   syncModeChrome();
-  refreshActiveConnectors();
+  refreshActiveConnectors(inspectLayout);
   updateConnectorGeometry();
   pointColorsDirty = true;
   updatePointMarkers();
 }
 
-function refreshActiveConnectors() {
+function refreshActiveConnectors(inspectLayout?: InspectLayout) {
   if (mode === "inspect" && activePromptId) {
-    activeConnectors = buildInspectLayout(activePromptId).connectors;
+    activeConnectors = (inspectLayout ?? buildInspectLayout(activePromptId)).connectors;
     return;
   }
 
@@ -4607,12 +4633,7 @@ function sessionVersionedImageUrl(image: ContentImageRef): string {
   const cacheToken = graph?.lastModifiedAt || graph?.generatedAt || `${image.eventIndex}`;
   const imageSessionPath = activeSessionPath || graph?.sessionPath || null;
   url.searchParams.set("v", cacheToken);
-  if (imageSessionPath) {
-    url.searchParams.set("session", imageSessionPath);
-  }
-  if (localSessionToken) {
-    url.searchParams.set("token", localSessionToken);
-  }
+  applySessionQuery(url, { includeSource: false, sessionPath: imageSessionPath });
   return `${url.pathname}${url.search}`;
 }
 
@@ -6622,7 +6643,7 @@ function setupControls() {
 
   modeButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      selectAppMode(datasetValue<AppMode>(button.dataset.appMode, "map"));
+      selectAppMode(oneOf(APP_MODES, button.dataset.appMode, "map"));
     });
   });
 
@@ -6631,7 +6652,7 @@ function setupControls() {
       utilityModeSelect.value = isDefaultAppMode(activeAppMode) ? "" : activeAppMode;
       return;
     }
-    selectAppMode(datasetValue<AppMode>(utilityModeSelect.value, "health"));
+    selectAppMode(oneOf(APP_MODES, utilityModeSelect.value, "health"));
   });
 
   sourceButtons.forEach((button) => {
@@ -6656,7 +6677,7 @@ function setupControls() {
 
   inspectorTabs.forEach((button) => {
     button.addEventListener("click", () => {
-      const panel = datasetValue<InspectorPanel>(button.dataset.inspectorTab, "sessions");
+      const panel = oneOf(INSPECTOR_PANELS, button.dataset.inspectorTab, "sessions");
       if (panel === activeInspectorPanel && !inspectorCollapsed) {
         setInspectorCollapsed(true);
         return;
@@ -6710,7 +6731,7 @@ function setupControls() {
 
   sessionFilterButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      activeSessionFilter = datasetValue<SessionFilter>(button.dataset.sessionFilter, "live");
+      activeSessionFilter = oneOf(SESSION_FILTERS, button.dataset.sessionFilter, "live");
       setActiveButton(sessionFilterButtons, (item) => item === button);
       renderPromptList();
     });
@@ -6729,7 +6750,7 @@ function setupControls() {
 
   savedViewButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const savedView = datasetValue<SavedView>(button.dataset.savedView, "latest");
+      const savedView = oneOf(SAVED_VIEWS, button.dataset.savedView, "latest");
       setActiveButton(savedViewButtons, (item) => item === button);
       if (savedView === "errors") {
         focusMetricReview(findMetricWithResults(["error", "long"]) || "error");
@@ -6743,7 +6764,7 @@ function setupControls() {
 
   viewActionButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const action = datasetValue<ViewAction>(button.dataset.viewAction, "two-d");
+      const action = oneOf(VIEW_ACTIONS, button.dataset.viewAction, "two-d");
       if (action === "zoom-in") {
         zoomCamera(CAMERA_ZOOM_UNIT);
       } else if (action === "zoom-out") {
@@ -6767,7 +6788,7 @@ function setupControls() {
 
   metricButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      selectMetric(datasetValue<Metric>(button.dataset.metric, "error"));
+      selectMetric(oneOf(METRICS, button.dataset.metric, "error"));
     });
   });
 
