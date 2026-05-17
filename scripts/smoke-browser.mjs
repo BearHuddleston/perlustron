@@ -296,7 +296,7 @@ async function assertSummaryDeepLink(page, server) {
   }));
   assert(summary.activeMode === "summary", "Summary deep link should activate the Summary tab");
   assert(summary.hidden === false, "Summary deep link should show the mode panel");
-  assert(summary.facts >= 4, "Summary deep link should render summary fact cards");
+  assert(summary.facts >= 4, "Summary deep link should render summary fact sections");
   assert(summary.text.includes("API token required"), "Summary should expose token requirement status only");
   assert(summary.text.includes("Raw logs"), "Summary should expose raw log shareability status");
   assert(summary.visibleUrl.includes("mode=summary"), "Summary deep link should preserve mode=summary in the visible URL");

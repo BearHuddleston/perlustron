@@ -1448,6 +1448,52 @@ fn cached_session_stores_line_offsets_for_large_image_fetches() {
 }
 
 #[test]
+fn appended_image_prompts_keep_media_line_index() {
+    let path = temp_jsonl_path("append-image-line-index");
+    let cache = Mutex::new(HashMap::new());
+    let initial = codex_message_line("user", "first prompt") + "\n";
+    fs::write(&path, &initial).unwrap();
+
+    let first = load_session_graph(SessionSource::Codex, &path, &cache).unwrap();
+    assert_eq!(first.prompts[0].event_index, 0);
+    let key = session_cache_key(SessionSource::Codex, &path);
+    {
+        let mut cache = cache.lock().unwrap();
+        cache.get_mut(&key).unwrap().graph.line_count += 4;
+    }
+
+    let image_line = json!({
+        "timestamp": "2026-05-10T16:04:03.287Z",
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "role": "user",
+            "content": [
+                { "type": "input_text", "text": "image prompt" },
+                { "type": "input_image", "image_url": "data:text/plain;base64,aGVsbG8=", "detail": "high" }
+            ]
+        }
+    })
+    .to_string();
+    fs::write(&path, initial + &image_line + "\n").unwrap();
+
+    let graph = load_session_graph(SessionSource::Codex, &path, &cache).unwrap();
+    let image_ref = &graph.prompts[1].images[0];
+    let image = load_session_image(
+        SessionSource::Codex,
+        &path,
+        image_ref.event_index,
+        image_ref.image_index,
+        &cache,
+    )
+    .unwrap();
+
+    let _ = fs::remove_file(&path);
+    assert_eq!(image_ref.event_index, 1);
+    assert_eq!(image.bytes, b"hello");
+}
+
+#[test]
 fn parses_claude_fixture_graph_and_status() {
     let path = fixture_path("claude-sanitized.jsonl");
     let cache = Mutex::new(HashMap::new());
