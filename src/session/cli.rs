@@ -332,141 +332,109 @@ fn parse_diff_command(args: &[String]) -> Result<CliAction> {
     })
 }
 
-fn parse_insights_command(args: &[String]) -> Result<CliAction> {
+#[derive(Clone, Copy)]
+enum SingleInputRedacted {
+    Reject,
+    Flag,
+    StrictProfile,
+}
+
+#[derive(Clone, Copy)]
+enum SingleInputOutput {
+    Optional,
+    Required(&'static str),
+}
+
+#[derive(Clone, Copy)]
+enum SingleInputFormats<F> {
+    None,
+    Optional {
+        default: F,
+        parse_arg: fn(Option<&String>, &str) -> Result<F>,
+        parse_value: fn(&str) -> Result<F>,
+    },
+    Required {
+        missing_message: &'static str,
+        parse_arg: fn(Option<&String>, &str) -> Result<F>,
+        parse_value: fn(&str) -> Result<F>,
+    },
+}
+
+#[derive(Clone, Copy)]
+struct SingleInputCommandConfig<F> {
+    command: &'static str,
+    allow_source: bool,
+    default_profile: RedactionProfile,
+    redacted: SingleInputRedacted,
+    output: SingleInputOutput,
+    formats: SingleInputFormats<F>,
+}
+
+struct SingleInputCommandOptions<F> {
+    source: Option<SessionSource>,
+    input: PathBuf,
+    output: Option<PathBuf>,
+    format: Option<F>,
+    redacted: bool,
+    profile: RedactionProfile,
+}
+
+fn parse_single_input_command<F: Copy>(
+    args: &[String],
+    config: SingleInputCommandConfig<F>,
+) -> Result<SingleInputCommandOptions<F>> {
     let mut source = None;
     let mut input = None;
     let mut output = None;
-    let mut format = DiffFormat::Text;
+    let mut format = match config.formats {
+        SingleInputFormats::Optional { default, .. } => Some(default),
+        SingleInputFormats::None | SingleInputFormats::Required { .. } => None,
+    };
     let mut redacted = false;
-    let mut profile = RedactionProfile::Strict;
+    let mut profile = config.default_profile;
     let mut index = 0;
 
     while index < args.len() {
         match args[index].as_str() {
-            "--source" => {
+            "--source" if config.allow_source => {
                 index += 1;
                 source = Some(parse_source_arg(args.get(index), "--source")?);
             }
-            arg if arg.starts_with("--source=") => {
+            arg if config.allow_source && arg.starts_with("--source=") => {
                 source = Some(parse_source_value(&arg["--source=".len()..])?);
             }
-            "--format" => {
-                index += 1;
-                format = parse_diff_format(args.get(index), "--format")?;
-            }
-            arg if arg.starts_with("--format=") => {
-                format = parse_diff_format_value(&arg["--format=".len()..])?;
-            }
-            "-o" | "--output" => {
-                index += 1;
-                output = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| anyhow!("insights -o requires an output path"))?,
-                ));
-            }
-            "--redacted" => redacted = true,
-            "--profile" => {
-                index += 1;
-                profile = parse_profile(args.get(index), "--profile")?;
-            }
-            arg if arg.starts_with("--profile=") => {
-                profile = parse_profile_value(&arg["--profile=".len()..])?;
-            }
-            arg if arg.starts_with('-') => return Err(anyhow!("unknown insights option `{arg}`")),
-            path => {
-                if input.is_some() {
-                    return Err(anyhow!("insights accepts one input path"));
+            "--format" => match config.formats {
+                SingleInputFormats::None => {
+                    return Err(anyhow!("unknown {} option `{}`", config.command, args[index]));
                 }
-                input = Some(validate_cli_path(path)?);
-            }
-        }
-        index += 1;
-    }
-
-    Ok(CliAction::Insights {
-        source,
-        input: input.ok_or_else(|| anyhow!("insights requires a session JSONL path"))?,
-        output,
-        format,
-        redacted,
-        profile,
-    })
-}
-
-fn parse_unknowns_command(args: &[String]) -> Result<CliAction> {
-    let mut source = None;
-    let mut input = None;
-    let mut output = None;
-    let mut profile = RedactionProfile::Standard;
-    let mut index = 0;
-
-    while index < args.len() {
-        match args[index].as_str() {
-            "--source" => {
-                index += 1;
-                source = Some(parse_source_arg(args.get(index), "--source")?);
-            }
-            arg if arg.starts_with("--source=") => {
-                source = Some(parse_source_value(&arg["--source=".len()..])?);
-            }
-            "-o" | "--output" => {
-                index += 1;
-                output = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| anyhow!("unknowns -o requires an output path"))?,
-                ));
-            }
-            "--redacted" => profile = RedactionProfile::Strict,
-            "--profile" => {
-                index += 1;
-                profile = parse_profile(args.get(index), "--profile")?;
-            }
-            arg if arg.starts_with("--profile=") => {
-                profile = parse_profile_value(&arg["--profile=".len()..])?;
-            }
-            arg if arg.starts_with('-') => return Err(anyhow!("unknown unknowns option `{arg}`")),
-            path => {
-                if input.is_some() {
-                    return Err(anyhow!("unknowns accepts one input path"));
+                SingleInputFormats::Optional { parse_arg, .. }
+                | SingleInputFormats::Required { parse_arg, .. } => {
+                    index += 1;
+                    format = Some(parse_arg(args.get(index), "--format")?);
                 }
-                input = Some(validate_cli_path(path)?);
-            }
-        }
-        index += 1;
-    }
-
-    Ok(CliAction::Unknowns {
-        source,
-        input: input.ok_or_else(|| anyhow!("unknowns requires a session JSONL path"))?,
-        output,
-        profile,
-    })
-}
-
-fn parse_fixture_report_command(args: &[String]) -> Result<CliAction> {
-    let mut source = None;
-    let mut input = None;
-    let mut output = None;
-    let mut profile = RedactionProfile::Strict;
-    let mut index = 0;
-
-    while index < args.len() {
-        match args[index].as_str() {
-            "--source" => {
-                index += 1;
-                source = Some(parse_source_arg(args.get(index), "--source")?);
-            }
-            arg if arg.starts_with("--source=") => {
-                source = Some(parse_source_value(&arg["--source=".len()..])?);
-            }
+            },
+            arg if arg.starts_with("--format=") => match config.formats {
+                SingleInputFormats::None => {
+                    return Err(anyhow!("unknown {} option `{arg}`", config.command));
+                }
+                SingleInputFormats::Optional { parse_value, .. }
+                | SingleInputFormats::Required { parse_value, .. } => {
+                    format = Some(parse_value(&arg["--format=".len()..])?);
+                }
+            },
             "-o" | "--output" => {
                 index += 1;
-                output = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| anyhow!("fixture-report -o requires an output path"))?,
-                ));
+                output = Some(PathBuf::from(args.get(index).ok_or_else(|| {
+                    anyhow!("{} -o requires an output path", config.command)
+                })?));
             }
-            "--redacted" => profile = RedactionProfile::Strict,
+            "--redacted" => match config.redacted {
+                SingleInputRedacted::Reject => {
+                    return Err(anyhow!("unknown {} option `--redacted`", config.command));
+                }
+                SingleInputRedacted::Flag => redacted = true,
+                SingleInputRedacted::StrictProfile => profile = RedactionProfile::Strict,
+            },
             "--profile" => {
                 index += 1;
                 profile = parse_profile(args.get(index), "--profile")?;
@@ -475,11 +443,11 @@ fn parse_fixture_report_command(args: &[String]) -> Result<CliAction> {
                 profile = parse_profile_value(&arg["--profile=".len()..])?;
             }
             arg if arg.starts_with('-') => {
-                return Err(anyhow!("unknown fixture-report option `{arg}`"));
+                return Err(anyhow!("unknown {} option `{arg}`", config.command));
             }
             path => {
                 if input.is_some() {
-                    return Err(anyhow!("fixture-report accepts one input path"));
+                    return Err(anyhow!("{} accepts one input path", config.command));
                 }
                 input = Some(validate_cli_path(path)?);
             }
@@ -487,11 +455,108 @@ fn parse_fixture_report_command(args: &[String]) -> Result<CliAction> {
         index += 1;
     }
 
-    Ok(CliAction::FixtureReport {
+    let input = input.ok_or_else(|| anyhow!("{} requires a session JSONL path", config.command))?;
+
+    if let SingleInputOutput::Required(message) = config.output
+        && output.is_none()
+    {
+        return Err(anyhow!("{message}"));
+    }
+
+    if let SingleInputFormats::Required {
+        missing_message, ..
+    } = config.formats
+        && format.is_none()
+    {
+        return Err(anyhow!("{missing_message}"));
+    }
+
+    Ok(SingleInputCommandOptions {
         source,
-        input: input.ok_or_else(|| anyhow!("fixture-report requires a session JSONL path"))?,
-        output: output.ok_or_else(|| anyhow!("fixture-report requires -o <report.md>"))?,
+        input,
+        output,
+        format,
+        redacted,
         profile,
+    })
+}
+
+fn require_single_input_output(output: Option<PathBuf>, message: &'static str) -> Result<PathBuf> {
+    output.ok_or_else(|| anyhow!("{message}"))
+}
+
+fn require_single_input_format<F>(format: Option<F>, message: &'static str) -> Result<F> {
+    format.ok_or_else(|| anyhow!("{message}"))
+}
+
+fn parse_insights_command(args: &[String]) -> Result<CliAction> {
+    let default_format = DiffFormat::Text;
+    let options = parse_single_input_command(
+        args,
+        SingleInputCommandConfig {
+            command: "insights",
+            allow_source: true,
+            default_profile: RedactionProfile::Strict,
+            redacted: SingleInputRedacted::Flag,
+            output: SingleInputOutput::Optional,
+            formats: SingleInputFormats::Optional {
+                default: default_format,
+                parse_arg: parse_diff_format,
+                parse_value: parse_diff_format_value,
+            },
+        },
+    )?;
+
+    Ok(CliAction::Insights {
+        source: options.source,
+        input: options.input,
+        output: options.output,
+        format: options.format.unwrap_or(default_format),
+        redacted: options.redacted,
+        profile: options.profile,
+    })
+}
+
+fn parse_unknowns_command(args: &[String]) -> Result<CliAction> {
+    let options = parse_single_input_command::<()>(
+        args,
+        SingleInputCommandConfig {
+            command: "unknowns",
+            allow_source: true,
+            default_profile: RedactionProfile::Standard,
+            redacted: SingleInputRedacted::StrictProfile,
+            output: SingleInputOutput::Optional,
+            formats: SingleInputFormats::None,
+        },
+    )?;
+
+    Ok(CliAction::Unknowns {
+        source: options.source,
+        input: options.input,
+        output: options.output,
+        profile: options.profile,
+    })
+}
+
+fn parse_fixture_report_command(args: &[String]) -> Result<CliAction> {
+    let output_required = "fixture-report requires -o <report.md>";
+    let options = parse_single_input_command::<()>(
+        args,
+        SingleInputCommandConfig {
+            command: "fixture-report",
+            allow_source: true,
+            default_profile: RedactionProfile::Strict,
+            redacted: SingleInputRedacted::StrictProfile,
+            output: SingleInputOutput::Required(output_required),
+            formats: SingleInputFormats::None,
+        },
+    )?;
+
+    Ok(CliAction::FixtureReport {
+        source: options.source,
+        input: options.input,
+        output: require_single_input_output(options.output, output_required)?,
+        profile: options.profile,
     })
 }
 
@@ -600,101 +665,52 @@ fn parse_scan_command(args: &[String]) -> Result<CliAction> {
 }
 
 fn parse_sanitize_command(args: &[String]) -> Result<CliAction> {
-    let mut input = None;
-    let mut output = None;
-    let mut profile = RedactionProfile::Standard;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "-o" | "--output" => {
-                index += 1;
-                output = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| anyhow!("sanitize -o requires an output path"))?,
-                ));
-            }
-            "--profile" => {
-                index += 1;
-                profile = parse_profile(args.get(index), "--profile")?;
-            }
-            arg if arg.starts_with("--profile=") => {
-                profile = parse_profile_value(&arg["--profile=".len()..])?;
-            }
-            arg if arg.starts_with('-') => return Err(anyhow!("unknown sanitize option `{arg}`")),
-            path => {
-                if input.is_some() {
-                    return Err(anyhow!("sanitize accepts one input path"));
-                }
-                input = Some(validate_cli_path(path)?);
-            }
-        }
-        index += 1;
-    }
+    let output_required = "sanitize requires -o <output.jsonl>";
+    let options = parse_single_input_command::<()>(
+        args,
+        SingleInputCommandConfig {
+            command: "sanitize",
+            allow_source: false,
+            default_profile: RedactionProfile::Standard,
+            redacted: SingleInputRedacted::Reject,
+            output: SingleInputOutput::Required(output_required),
+            formats: SingleInputFormats::None,
+        },
+    )?;
+
     Ok(CliAction::Sanitize {
-        input: input.ok_or_else(|| anyhow!("sanitize requires a session JSONL path"))?,
-        output: output.ok_or_else(|| anyhow!("sanitize requires -o <output.jsonl>"))?,
-        profile,
+        input: options.input,
+        output: require_single_input_output(options.output, output_required)?,
+        profile: options.profile,
     })
 }
 
 fn parse_export_command(args: &[String]) -> Result<CliAction> {
-    let mut source = None;
-    let mut input = None;
-    let mut output = None;
-    let mut format = None;
-    let mut redacted = false;
-    let mut profile = RedactionProfile::Strict;
-    let mut index = 0;
-
-    while index < args.len() {
-        match args[index].as_str() {
-            "--source" => {
-                index += 1;
-                source = Some(parse_source_arg(args.get(index), "--source")?);
-            }
-            arg if arg.starts_with("--source=") => {
-                source = Some(parse_source_value(&arg["--source=".len()..])?);
-            }
-            "--format" => {
-                index += 1;
-                format = Some(parse_export_format(args.get(index), "--format")?);
-            }
-            arg if arg.starts_with("--format=") => {
-                format = Some(parse_export_format_value(&arg["--format=".len()..])?);
-            }
-            "-o" | "--output" => {
-                index += 1;
-                output = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| anyhow!("export -o requires an output path"))?,
-                ));
-            }
-            "--redacted" => redacted = true,
-            "--profile" => {
-                index += 1;
-                profile = parse_profile(args.get(index), "--profile")?;
-            }
-            arg if arg.starts_with("--profile=") => {
-                profile = parse_profile_value(&arg["--profile=".len()..])?;
-            }
-            arg if arg.starts_with('-') => return Err(anyhow!("unknown export option `{arg}`")),
-            path => {
-                if input.is_some() {
-                    return Err(anyhow!("export accepts one input path"));
-                }
-                input = Some(validate_cli_path(path)?);
-            }
-        }
-        index += 1;
-    }
+    let output_required = "export requires -o <output>";
+    let format_required = "export requires --format html|markdown|json";
+    let options = parse_single_input_command(
+        args,
+        SingleInputCommandConfig {
+            command: "export",
+            allow_source: true,
+            default_profile: RedactionProfile::Strict,
+            redacted: SingleInputRedacted::Flag,
+            output: SingleInputOutput::Required(output_required),
+            formats: SingleInputFormats::Required {
+                missing_message: format_required,
+                parse_arg: parse_export_format,
+                parse_value: parse_export_format_value,
+            },
+        },
+    )?;
 
     Ok(CliAction::Export {
-        source,
-        input: input.ok_or_else(|| anyhow!("export requires a session JSONL path"))?,
-        output: output.ok_or_else(|| anyhow!("export requires -o <output>"))?,
-        format: format.ok_or_else(|| anyhow!("export requires --format html|markdown|json"))?,
-        redacted,
-        profile,
+        source: options.source,
+        input: options.input,
+        output: require_single_input_output(options.output, output_required)?,
+        format: require_single_input_format(options.format, format_required)?,
+        redacted: options.redacted,
+        profile: options.profile,
     })
 }
 
