@@ -18,7 +18,7 @@ perlustron bench fixtures/codex-edge-cases.jsonl --append-lines 25
 perlustron bench fixtures/claude-edge-cases.jsonl --source claude --append-lines 0
 ```
 
-The generated fixture is synthetic and safe to share. The benchmark reports full parse time, status refresh time, append parse time, diff time, HTML export time, sanitization time, unknown-report time, output size, line count, and renderable event count. Diff timing includes the sequence-aware divergence path with a bounded large-session fallback. Use direct commands when measuring a specific reporting path in isolation:
+The generated fixture is synthetic and safe to share. The benchmark reports full parse time, status refresh time, append parse time, diff time, HTML export time, sanitization time, unknown-report time, output size, line count, and renderable event count. Diff timing includes the sequence-aware divergence path with a bounded large-session fallback. For image-evidence or media-route changes, also smoke a generated 100k-line session with an embedded image near the tail so the release notes can say the cached line-offset lookup was exercised without promising hardware-specific timings. Use direct commands when measuring a specific reporting path in isolation:
 
 ```powershell
 Measure-Command { perlustron diff fixtures/codex-sanitized.jsonl fixtures/codex-loop-error.jsonl --redacted | Out-Null }
