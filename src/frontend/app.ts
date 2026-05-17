@@ -16,14 +16,15 @@ import {
 } from "./utils/format";
 import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
 
-const INFO_DOT_COLORS = ["green", "blue", "violet", "amber"] as const;
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
 const MAX_SUBAGENT_INSPECTION_NODES = 72;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 type SessionSource = "codex" | "claude";
 type Mode = "overview" | "inspect";
 type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export" | "settings";
 type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction";
+type MetadataIcon = "codex" | "source" | "git" | "policy" | "model" | "tools";
 type ViewAction = "zoom-in" | "zoom-out" | "two-d" | "overview";
 type SceneBucket = "prompt" | "call" | "fileChange" | "message" | "compaction";
 type OverviewCameraMode = "three-d" | "two-d";
@@ -37,12 +38,24 @@ type Connector =
 type TimerId = ReturnType<typeof setTimeout>;
 
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
-type DefaultAppMode = (typeof DEFAULT_APP_MODES)[number];
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
 const METRICS = ["error", "long", "file", "diff", "artifact", "compaction"] as const satisfies readonly Metric[];
 const VIEW_ACTIONS = ["zoom-in", "zoom-out", "two-d", "overview"] as const satisfies readonly ViewAction[];
+const METADATA_ICON_PATHS: Record<MetadataIcon, readonly string[]> = {
+  codex: ["M4 7l5 5-5 5", "M12 17h8"],
+  source: ["M5 6h14", "M5 12h14", "M5 18h14", "M8 4v4", "M16 10v4", "M11 16v4"],
+  git: [
+    "M6 4m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0",
+    "M6 20m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0",
+    "M18 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0",
+    "M6 6v8a4 4 0 0 0 4 4h6",
+    "M6 10h6a4 4 0 0 1 4 4v4",
+  ],
+  policy: ["M12 3l7 4v5c0 4.5-2.8 7.4-7 9-4.2-1.6-7-4.5-7-9V7l7-4z", "M9 12l2 2 4-5"],
+  model: ["M8 8h8v8H8z", "M4 10h4", "M4 14h4", "M16 10h4", "M16 14h4", "M10 4v4", "M14 4v4", "M10 16v4", "M14 16v4"],
+  tools: ["M14.7 6.3l3-3a2.1 2.1 0 0 1 3 3l-3 3", "M13 8l3 3", "M3 21l8-8", "M9 11l4 4"],
+};
 const APP_MODE_SET = new Set<AppMode>(APP_MODES);
-const DEFAULT_APP_MODE_SET = new Set<AppMode>(DEFAULT_APP_MODES);
 type FileChangeType = (typeof FILE_CHANGE_TYPES)[number];
 
 interface TimelineTick {
@@ -801,8 +814,6 @@ function imagesForNode(node: SceneNode): ContentImageRef[] {
 }
 
 const canvas = queryRequired<HTMLCanvasElement>("#space");
-const sessionTitle = queryRequired<HTMLElement>("#session-title");
-const rootList = queryRequired<HTMLElement>("#root-list");
 const metadataList = queryRequired<HTMLElement>("#metadata-list");
 const streamKind = queryRequired<HTMLElement>("#stream-kind");
 const streamTitle = queryRequired<HTMLElement>("#stream-title");
@@ -853,7 +864,6 @@ const modeFilterUtc = queryRequired<HTMLInputElement>("#mode-filter-utc");
 const viewActionButtons = queryAll<HTMLButtonElement>("[data-view-action]");
 const metricButtons = queryAll<HTMLButtonElement>("[data-metric]");
 const modeButtons = queryAll<HTMLButtonElement>("[data-app-mode]");
-const utilityModeSelect = queryRequired<HTMLSelectElement>("#utility-mode-select");
 const sourceButtons = queryAll<HTMLButtonElement>("[data-source]");
 const sessionSelect = queryRequired<HTMLSelectElement>("#session-select");
 const sessionSelectStatus = queryRequired<HTMLElement>("#session-select-status");
@@ -1423,7 +1433,7 @@ async function switchSession(sessionPath: string | null | undefined): Promise<vo
   syncSessionUrl();
   resetSessionViewState();
   const switchGeneration = sessionLoadGeneration;
-  setSessionLoadingChrome(nextSessionPath);
+  setSessionLoadingChrome();
   await loadGraph({ suppressLiveAnimation: true });
   if (isCurrentSessionLoad(switchGeneration)) {
     startLiveUpdates();
@@ -1496,8 +1506,7 @@ function setSessionPickerError(): void {
   sessionSelectStatus.textContent = "Error";
 }
 
-function setSessionLoadingChrome(sessionPath: string | null): void {
-  sessionTitle.textContent = "Loading session";
+function setSessionLoadingChrome(): void {
   stageTurnCount.textContent = "Loading";
   stageStarted.textContent = "Reading JSONL";
   liveState.textContent = "LOAD";
@@ -1695,7 +1704,7 @@ function applySessionStatus(status: SessionStatus, nextLiveCues: LiveTailCues): 
   lastStatusGraphChanged = status.graphChanged === true;
   liveCues = nextLiveCues;
   setCompactionInProgress(liveCues.compactionInProgress);
-  stageStarted.textContent = recordsLabel(status.lineCount, current.pendingBytes);
+  stageStarted.textContent = recordMetricValue(status.lineCount, current.pendingBytes);
   renderContextPressure(tokenTelemetryWithLiveCue(current.tokenTelemetry, liveCues.latestTokenSample));
   updateLiveChrome();
   renderActiveModePanel();
@@ -1751,10 +1760,8 @@ function rebuildScene({
 function updateGraphChrome(): void {
   const current = currentGraph();
   const ui = current.ui;
-  const sessionName = ui.sessionName || current.cwd?.split(/[\\/]/).filter(Boolean).at(-1) || `${sourceLabel()} session`;
-  sessionTitle.textContent = sessionName;
-  stageTurnCount.textContent = `${ui.totalTurns} turns`;
-  stageStarted.textContent = recordsLabel(current.lineCount, current.pendingBytes);
+  stageTurnCount.textContent = formatNumber(ui.totalTurns);
+  stageStarted.textContent = recordMetricValue(current.lineCount, current.pendingBytes);
   metricErrors.textContent = `${ui.metricErrors}`;
   metricLong.textContent = `${ui.metricLongCalls}`;
   metricFiles.textContent = `${ui.metricFiles}`;
@@ -1762,13 +1769,19 @@ function updateGraphChrome(): void {
   metricArtifacts.textContent = `${ui.metricArtifacts}`;
   metricCompactions.textContent = `${ui.metricCompactions}`;
   renderContextPressure(current.tokenTelemetry);
-  renderRootList();
   renderMetadataList();
   renderActiveModePanel();
 }
 
 function parserHealthNumber(value: number): string {
   return `${value}`;
+}
+
+function recordMetricValue(lineCount: number, pendingBytes = 0): string {
+  if (pendingBytes > 0) {
+    return `${formatNumber(lineCount)} + ${formatBytes(pendingBytes)} pending`;
+  }
+  return formatNumber(lineCount);
 }
 
 function parserHealthVersionValue(health: ParserHealth): string {
@@ -3600,27 +3613,12 @@ function compactionProgressTimelineEntry(source: SessionGraph, entries: Timeline
   };
 }
 
-function renderInfoRow({
-  label,
-  detail,
-  status,
-  title = detail,
-  className = "",
-  dotIndex,
-}: {
-  label: string;
-  detail: string;
-  status?: string;
-  title?: string;
-  className?: string;
-  dotIndex: number;
-}): HTMLDivElement {
+function renderMetadataRow({ label, detail, icon }: MetadataRow): HTMLDivElement {
   const row = document.createElement("div");
-  row.className = ["root-row", className].filter(Boolean).join(" ");
-  row.title = title;
+  row.className = "root-row metadata-row";
+  row.title = detail;
 
-  const dot = document.createElement("span");
-  dot.className = `root-dot ${INFO_DOT_COLORS[dotIndex % INFO_DOT_COLORS.length]}`;
+  const iconElement = renderStatusIcon(icon);
   const copy = document.createElement("span");
   copy.className = "root-copy";
   const rowLabel = document.createElement("strong");
@@ -3628,71 +3626,55 @@ function renderInfoRow({
   const rowDetail = document.createElement("small");
   rowDetail.textContent = detail;
   copy.append(rowLabel, rowDetail);
-  row.append(dot, copy);
-
-  if (status) {
-    const statusElement = document.createElement("em");
-    statusElement.textContent = status;
-    row.append(statusElement);
-  }
-
+  row.append(iconElement, copy);
   return row;
 }
 
-function renderRootList(): void {
-  const current = currentGraph();
-  const roots = current.ui?.roots?.length
-    ? current.ui.roots
-    : [
-        {
-          label: "Session file",
-          path: current.sessionPath,
-          status: "Loaded",
-        },
-      ];
-  const nonSessionFileRoots = roots.filter((root) => root.label !== "Session file");
-  const visibleRoots = nonSessionFileRoots.length ? nonSessionFileRoots : roots;
-  const fragment = document.createDocumentFragment();
+function renderStatusIcon(icon: MetadataIcon): HTMLSpanElement {
+  const iconElement = document.createElement("span");
+  iconElement.className = `root-icon ${icon}`;
+  iconElement.setAttribute("aria-hidden", "true");
 
-  visibleRoots.forEach((root, index) => {
-    fragment.append(
-      renderInfoRow({
-        label: root.label || "Session root",
-        detail: shortPath(root.path) || root.path || "Local path",
-        status: root.status || "Local",
-        title: root.path || "",
-        dotIndex: index,
-      }),
-    );
-  });
-  rootList.replaceChildren(fragment);
+  const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("focusable", "false");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+
+  for (const d of METADATA_ICON_PATHS[icon]) {
+    const path = document.createElementNS(SVG_NAMESPACE, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  iconElement.append(svg);
+  return iconElement;
 }
+
+type MetadataRow = {
+  label: string;
+  detail: string;
+  icon: MetadataIcon;
+};
 
 function renderMetadataList(): void {
   const metadata = currentGraph().metadata;
   const toolNames = (metadata?.dynamicTools || [])
     .map((tool) => (tool.namespace ? `${tool.namespace}.${tool.name}` : tool.name))
     .slice(0, 6);
-  const rows = [
-    ["Codex", [metadata?.originator, metadata?.cliVersion].filter(Boolean).join(" ")],
-    ["Source", [metadata?.source, metadata?.modelProvider].filter(Boolean).join(" / ")],
-    ["Git", shortCommit(metadata?.gitCommitHash) || shortPath(metadata?.repositoryUrl || "")],
-    ["Policy", [metadata?.approvalPolicy, metadata?.sandbox].filter(Boolean).join(" / ")],
-    ["Model", metadata?.model || ""],
-    ["Tools", toolNames.join(", ")],
-  ].filter(([, value]) => value);
+  const rows = ([
+    { label: "Codex", detail: [metadata?.originator, metadata?.cliVersion].filter(Boolean).join(" "), icon: "codex" },
+    { label: "Source", detail: [metadata?.source, metadata?.modelProvider].filter(Boolean).join(" / "), icon: "source" },
+    { label: "Git", detail: shortCommit(metadata?.gitCommitHash) || shortPath(metadata?.repositoryUrl || ""), icon: "git" },
+    { label: "Policy", detail: [metadata?.approvalPolicy, metadata?.sandbox].filter(Boolean).join(" / "), icon: "policy" },
+    { label: "Model", detail: metadata?.model || "", icon: "model" },
+    { label: "Tools", detail: toolNames.join(", "), icon: "tools" },
+  ] satisfies MetadataRow[]).filter((row) => row.detail);
 
   const fragment = document.createDocumentFragment();
-  rows.forEach(([label, value], index) => {
-    fragment.append(
-      renderInfoRow({
-        label,
-        detail: value,
-        className: "metadata-row",
-        dotIndex: index,
-      }),
-    );
-  });
+  rows.forEach((row) => fragment.append(renderMetadataRow(row)));
   metadataList.replaceChildren(fragment);
 }
 
@@ -4790,6 +4772,12 @@ function setActiveButton(buttons: Iterable<HTMLButtonElement>, isActive: (button
   for (const button of buttons) {
     button.classList.toggle("active", isActive(button));
   }
+}
+
+function syncAppModeControls(): void {
+  setActiveButton(modeButtons, (button) => button.dataset.appMode === activeAppMode);
+  settingsButton.classList.toggle("active", activeAppMode === "settings");
+  settingsButton.setAttribute("aria-pressed", String(activeAppMode === "settings"));
 }
 
 function syncSourceButtons(): void {
@@ -6157,15 +6145,10 @@ function errorishText(text: string): boolean {
   return /\b(error|failed|failure|exception|panic|denied|permission|timeout|traceback|not found|exit code|fatal|forbidden|sandbox)\b/i.test(text);
 }
 
-function isDefaultAppMode(appMode: AppMode): appMode is DefaultAppMode {
-  return DEFAULT_APP_MODE_SET.has(appMode);
-}
-
 function selectAppMode(nextMode: AppMode): void {
   activeAppMode = nextMode;
   syncSessionUrl();
-  setActiveButton(modeButtons, (button) => button.dataset.appMode === activeAppMode);
-  utilityModeSelect.value = isDefaultAppMode(activeAppMode) ? "" : activeAppMode;
+  syncAppModeControls();
   syncModePanelVisibility();
   if (nextMode !== "map") {
     hideEventPopup();
@@ -6358,8 +6341,7 @@ function exitInspectMode({ preserveCamera = false }: { preserveCamera?: boolean 
 
 function setupControls() {
   syncSourceButtons();
-  setActiveButton(modeButtons, (button) => button.dataset.appMode === activeAppMode);
-  utilityModeSelect.value = isDefaultAppMode(activeAppMode) ? "" : activeAppMode;
+  syncAppModeControls();
   syncModePanelVisibility();
   syncSessionUrl();
 
@@ -6367,14 +6349,6 @@ function setupControls() {
     button.addEventListener("click", () => {
       selectAppMode(oneOf(APP_MODES, button.dataset.appMode, "map"));
     });
-  });
-
-  utilityModeSelect.addEventListener("change", () => {
-    if (!utilityModeSelect.value) {
-      utilityModeSelect.value = isDefaultAppMode(activeAppMode) ? "" : activeAppMode;
-      return;
-    }
-    selectAppMode(oneOf(APP_MODES, utilityModeSelect.value, "health"));
   });
 
   sourceButtons.forEach((button) => {

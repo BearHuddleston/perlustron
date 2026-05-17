@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=110370804426795" />
+    <link rel="stylesheet" href="/styles.css?v=135927440457764" />
   </head>
   <body>
     <main id="app">
@@ -23,58 +23,58 @@
           <kbd>Ctrl K</kbd>
         </label>
         <div class="top-actions">
-          <div id="source-switch" class="source-switch" aria-label="Session source">
-            <button class="active" type="button" data-source="codex">Codex</button>
-            <button type="button" data-source="claude">Claude</button>
-          </div>
-          <label class="session-picker">
-            <span>Session</span>
-            <select id="session-select" aria-label="Select session">
-              <option value="">Loading sessions</option>
-            </select>
-            <small id="session-select-status">Loading</small>
-          </label>
           <button id="live-toggle" class="live-select" type="button"><span></span><b id="live-state">LIVE</b> <small id="live-copy">Tailing session...</small></button>
-          <button id="settings-button" class="settings" type="button">Settings</button>
+          <button id="settings-button" class="settings" type="button" aria-label="Settings" title="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
         </div>
       </header>
 
-      <nav id="mode-nav" class="mode-nav" aria-label="Default Perlustron modes">
+      <nav id="mode-nav" class="mode-nav" aria-label="Perlustron modes">
         <button class="active" type="button" data-app-mode="summary">Summary</button>
         <button type="button" data-app-mode="map">Map</button>
         <button type="button" data-app-mode="timeline">Timeline</button>
         <button type="button" data-app-mode="transcript">Transcript</button>
-        <label class="utility-mode-picker">
-          <span>Utilities</span>
-          <select id="utility-mode-select" class="mode-select" aria-label="Open utility view">
-            <option value="">Open</option>
-            <option value="health">Health</option>
-            <option value="insights">Insights</option>
-            <option value="diff">Diff</option>
-            <option value="raw">Raw</option>
-            <option value="export">Export</option>
-            <option value="settings">Settings</option>
-          </select>
-        </label>
+        <button type="button" data-app-mode="health">Health</button>
+        <button type="button" data-app-mode="insights">Insights</button>
+        <button type="button" data-app-mode="diff">Diff</button>
+        <button type="button" data-app-mode="raw">Raw</button>
+        <button type="button" data-app-mode="export">Export</button>
       </nav>
 
       <div id="workspace">
         <section id="stage">
           <div class="stage-header">
-            <div class="stage-title-block">
-              <h1 id="session-title">Loading session</h1>
+            <div class="stage-session-context">
+              <div id="source-switch" class="source-switch" aria-label="Session source">
+                <button class="active" type="button" data-source="codex">Codex</button>
+                <button type="button" data-source="claude">Claude</button>
+              </div>
+              <label class="session-picker">
+                <span>Session</span>
+                <select id="session-select" aria-label="Select session">
+                  <option value="">Loading sessions</option>
+                </select>
+                <small id="session-select-status">Loading</small>
+              </label>
             </div>
             <div class="stage-metrics">
-              <strong id="stage-turn-count">0 turns</strong>
-              <span id="stage-started">Started just now</span>
-              <div class="context-pressure" title="Context pressure">
+              <div class="stage-metric">
+                <span>Turns</span>
+                <strong id="stage-turn-count">0</strong>
+              </div>
+              <div class="stage-metric">
+                <span>Records</span>
+                <strong id="stage-started">0</strong>
+              </div>
+              <div class="stage-metric context-pressure" title="Context pressure">
                 <span>Context</span>
                 <strong id="context-pressure-value">n/a</strong>
                 <div id="context-pressure-bars" aria-hidden="true"></div>
               </div>
-            </div>
-            <div class="stage-roots" aria-label="Session roots">
-              <div id="root-list" class="stage-root-list"></div>
             </div>
           </div>
 
@@ -179,6 +179,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v110370804426795.js"></script>
+    <script type="module" src="/app-v135927440457764.js"></script>
   </body>
 </html>

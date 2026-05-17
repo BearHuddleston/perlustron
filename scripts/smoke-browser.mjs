@@ -259,9 +259,9 @@ async function waitForLoadedDemo(page) {
   await page.waitForSelector("#app", { timeout: UI_TIMEOUT_MS });
   await page.waitForFunction(
     () => {
-      const title = document.querySelector("#session-title")?.textContent?.trim() || "";
       const turns = document.querySelector("#stage-turn-count")?.textContent?.trim() || "";
-      return title && title !== "Loading session" && !turns.startsWith("0 ");
+      const metadataRows = document.querySelectorAll("#metadata-list .root-row").length;
+      return turns && !turns.startsWith("0 ") && metadataRows > 0;
     },
     null,
     { timeout: UI_TIMEOUT_MS }
@@ -343,7 +343,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
       }
     };
     return {
-      utilityMode: document.querySelector("#utility-mode-select")?.value,
+      activeMode: document.querySelector("#mode-nav button.active")?.getAttribute("data-app-mode"),
       panelHidden: document.querySelector("#mode-panel")?.classList.contains("hidden"),
       panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim(),
       panelJsonText,
@@ -353,7 +353,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
       visibleUrl: window.location.href,
     };
   });
-  assert(evidence.utilityMode === "raw", "Open Evidence should route to the Raw evidence surface");
+  assert(evidence.activeMode === "raw", "Open Evidence should route to the Raw evidence surface");
   assert(evidence.panelHidden === false, "Open Evidence should show a visible evidence panel");
   assert(evidence.panelSummary === "Selected event", "Open Evidence should preserve the selected event in Raw mode");
   assert(evidence.panelJsonObject, "Open Evidence should expose parseable selected event JSON");
@@ -399,7 +399,8 @@ async function assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server) 
   await page.waitForTimeout(250);
 
   const settings = await page.evaluate(() => ({
-    utilityMode: document.querySelector("#utility-mode-select")?.value,
+    activeNavMode: document.querySelector("#mode-nav button.active")?.getAttribute("data-app-mode") || "",
+    settingsButtonActive: document.querySelector("#settings-button")?.classList.contains("active"),
     panelHidden: document.querySelector("#mode-panel")?.classList.contains("hidden"),
     panelTitle: document.querySelector("#mode-panel-title")?.textContent?.trim(),
     panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim(),
@@ -408,7 +409,8 @@ async function assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server) 
     visibleUrl: window.location.href,
   }));
 
-  assert(settings.utilityMode === "settings", "Settings button should route Summary users to the Settings utility surface");
+  assert(!settings.activeNavMode, "Settings mode should not keep a redundant active nav tab");
+  assert(settings.settingsButtonActive === true, "Settings cog should show the active settings state");
   assert(settings.panelHidden === false, "Settings button should open a visible mode panel outside Map mode");
   assert(settings.panelTitle === "Settings", "Settings button should show a visible Settings panel from Summary");
   assert(settings.panelSummary === "Local observatory settings", "Settings panel should identify the local observatory control surface");
@@ -490,29 +492,42 @@ async function testBrowserUi(server, browser) {
     await waitForLoadedDemo(page);
 
     const chrome = await page.evaluate(() => ({
-      title: document.querySelector("#session-title")?.textContent?.trim(),
       turnCount: document.querySelector("#stage-turn-count")?.textContent?.trim(),
+      statusRows: document.querySelectorAll("#metadata-list .root-row").length,
+      statusIcons: document.querySelectorAll("#metadata-list .root-icon svg").length,
+      statusDots: document.querySelectorAll("#metadata-list .root-dot").length,
       modeButtons: Array.from(document.querySelectorAll("[data-app-mode]")).map((button) => button.textContent?.trim()),
+      settingsIcon: Boolean(document.querySelector("#settings-button svg")),
+      settingsText: document.querySelector("#settings-button")?.textContent?.trim(),
       sessionsSidebarExists: Boolean(document.querySelector("#inspector-dock")),
-      rootRows: document.querySelectorAll("#root-list .root-row").length,
+      sessionTitleExists: Boolean(document.querySelector("#session-title")),
+      rootListExists: Boolean(document.querySelector("#root-list")),
       visibleUrl: window.location.href,
     }));
-    assert(chrome.title && chrome.title !== "Loading session", "demo should load a concrete session title");
     assert(chrome.turnCount && !chrome.turnCount.startsWith("0 "), "demo should render non-zero turn count");
+    assert(chrome.statusRows > 0, "demo should render status-bar metadata");
+    assert(chrome.statusIcons === chrome.statusRows, "status-bar metadata should use semantic icons for every row");
+    assert(chrome.statusDots === 0, "status-bar metadata should not render generic color squares");
+    assert(chrome.settingsIcon && !chrome.settingsText, "top-bar Settings control should be an icon-only cog button");
     assert(chrome.modeButtons.includes("Summary"), "Summary tab should render");
     assert(chrome.modeButtons.includes("Map"), "Map tab should render");
     assert(chrome.modeButtons.includes("Timeline"), "Timeline tab should render");
     assert(chrome.modeButtons.includes("Transcript"), "Transcript tab should render");
+    for (const tab of ["Health", "Insights", "Diff", "Raw", "Export"]) {
+      assert(chrome.modeButtons.includes(tab), `${tab} tab should render`);
+    }
+    assert(!chrome.modeButtons.includes("Settings"), "Settings should not render as a redundant mode tab");
     await assertSummaryDeepLink(page, server);
     await assertSummaryOpenEvidenceRoutesToRaw(page, server);
     await assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server);
     assert(!chrome.sessionsSidebarExists, "Gutted sessions sidebar should not render");
-    assert(chrome.rootRows > 0, "Session roots should render above the map");
+    assert(!chrome.sessionTitleExists, "Redundant stage session title should not render");
+    assert(!chrome.rootListExists, "Redundant stage roots should not render");
     assert(!chrome.visibleUrl.includes("token="), "token should be removed from the visible browser URL");
 
     await assertMode(page, '[data-app-mode="timeline"]', "Timeline");
     await assertMode(page, '[data-app-mode="transcript"]', "Transcript");
-    await page.selectOption("#utility-mode-select", "health");
+    await page.click('[data-app-mode="health"]');
     await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Health", null, {
       timeout: UI_TIMEOUT_MS,
     });
