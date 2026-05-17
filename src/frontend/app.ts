@@ -12,6 +12,7 @@ import {
   formatSessionModified,
   recordsLabel,
 } from "./utils/format";
+import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
 
 const SIDEBAR_DOT_COLORS = ["green", "blue", "violet", "amber"] as const;
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
@@ -4851,19 +4852,34 @@ function selectedEventReferenceText(): string | null {
   if (!selected) {
     return null;
   }
-  return safeEvidenceReferenceText(selected.node.title, selected.row?.lineNumber, selected.node.eventIndex, selected.node.kind);
+  return copySafeReferenceForModeRow(selected.row ?? modeRowFromSceneNode(selected.node));
 }
 
-function safeEvidenceReferenceText(title: string, lineNumber: number | null | undefined, eventIndex: number | null | undefined, kind: string): string {
-  return [
-    "Perlustron evidence reference",
-    lineNumber ? `line: ${lineNumber}` : null,
-    eventIndex !== null && eventIndex !== undefined ? `event_index: ${eventIndex}` : null,
-    `kind: ${kind}`,
-    `summary: ${compactUiText(title, 180)}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+function copySafeReferenceForModeRow(row: ModeEventRow): string {
+  const current = currentGraph();
+  return copySafeReferenceText({
+    source: sourceLabel(current.source),
+    lineNumber: row.lineNumber,
+    eventIndex: row.eventIndex,
+    kind: [row.role, row.eventType, row.toolName].filter(Boolean).join(" / "),
+    summary: modeRowSafeReferenceSummary(row),
+    parserVersion: current.parserVersion,
+    schemaVersion: current.schemaVersion,
+  });
+}
+
+function modeRowSafeReferenceSummary(row: ModeEventRow): string {
+  return safeReferenceSummary({
+    role: row.role,
+    eventType: row.eventType,
+    toolName: row.toolName,
+    filePath: row.filePath,
+    rawSummary: modeRowDisplaySummary(row),
+  });
+}
+
+function modeRowDisplaySummary(row: ModeEventRow): string {
+  return [row.title, row.detail].filter(Boolean).join(" - ");
 }
 
 function syncEventContextActions(): void {
@@ -4873,7 +4889,7 @@ function syncEventContextActions(): void {
     button.disabled = !hasSelection;
   }
   if (!hasSelection) {
-    streamCopyRef.textContent = "Copy Ref";
+    streamCopyRef.textContent = "Copy Safe Ref";
   }
 }
 
@@ -4887,11 +4903,43 @@ async function copySelectedEventRef(): Promise<void> {
     await navigator.clipboard.writeText(referenceText);
     streamCopyRef.textContent = "Copied";
     window.setTimeout(() => {
-      streamCopyRef.textContent = "Copy Ref";
+      streamCopyRef.textContent = "Copy Safe Ref";
     }, 1200);
   } catch (error) {
     openSyntheticStream("COPY", "Copy failed", errorMessage(error));
   }
+}
+
+function copySelectedSafeReference(): void {
+  const referenceText = selectedEventReferenceText();
+  if (!referenceText) {
+    openSyntheticStream("COPY", "Select an event first", "Open Map or Timeline and select an event before copying a safe reference.");
+    return;
+  }
+  copyText(referenceText, "Copy-safe reference copied");
+}
+
+function copySafeShareSummaryForGraph(current: SessionGraph): string {
+  const shareability = current.shareabilitySummary;
+  const privacy = current.privacySummary;
+  const health = current.parserHealth;
+  return copySafeShareSummaryText({
+    source: sourceLabel(current.source),
+    sessionName: current.ui.sessionName || current.sessionPath || `${sourceLabel(current.source)} session`,
+    totalTurns: current.ui.totalTurns,
+    callCount: current.totals.callCount,
+    fileChangeCount: current.totals.fileChangeCount,
+    latestEventIndex: current.latestEventIndex,
+    parserVersion: current.parserVersion,
+    schemaVersion: current.schemaVersion,
+    cliContext: [current.metadata.originator, current.metadata.cliVersion].filter(Boolean).join(" ") || null,
+    rawLogsSafeToShare: shareability.rawLogsSafeToShare,
+    rawLogCaution: shareability.rawLogCaution,
+    sanitizedGraphNote: shareability.sanitizedGraphNote,
+    redactedFieldCount: health.redactedFieldCount,
+    imageCount: health.imageCount,
+    apiTokenRequired: privacy.apiTokenRequired,
+  });
 }
 
 function openSelectedEventMode(nextMode: AppMode): void {
@@ -5066,7 +5114,7 @@ function renderSummaryModePanel(): void {
       `${sessionName} is a ${sourceLabel(current.source)} trace with ${current.ui.totalTurns.toLocaleString()} turns, ${current.totals.callCount.toLocaleString()} tool calls, and ${current.totals.fileChangeCount.toLocaleString()} file changes.`
     ),
     modeParagraph(
-      `${rawShareStatus}. ${shareability.sanitizedGraphNote || "Sanitized graph data is intended for UI and report sharing after review."}`
+      `${rawShareStatus}. Sanitized graph/export and copy-safe references reduce exposure compared with raw logs, but they still require human judgment before sharing.`
     )
   );
 
@@ -5092,6 +5140,7 @@ function renderSummaryModePanel(): void {
   const shareActions = document.createElement("div");
   shareActions.className = "mode-actions";
   shareActions.append(
+    modeButton("Copy Share Summary", () => copyText(copySafeShareSummaryForGraph(current), "Copy-safe share summary copied")),
     modeButton("Open Export", () => selectAppMode("export")),
     modeButton("Audit Raw", () => selectAppMode("raw"))
   );
@@ -5283,6 +5332,10 @@ function renderTimelineModePanel(): void {
     return;
   }
   const fragment = document.createDocumentFragment();
+  const actions = document.createElement("div");
+  actions.className = "mode-actions";
+  actions.append(modeButton("Copy Safe Reference", () => copySelectedSafeReference()));
+  fragment.append(actions);
   visible.forEach((row) => fragment.append(renderModeRow(row)));
   if (filtered.length > visible.length) {
     fragment.append(modeEmpty(`${filtered.length - visible.length} additional events hidden; narrow filters or search to inspect them.`));
