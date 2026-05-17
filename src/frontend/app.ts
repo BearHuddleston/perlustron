@@ -176,6 +176,8 @@ interface ParserHealth {
   warnings: string[];
 }
 
+type ParserHealthLine = [label: string, value: string];
+
 interface ParserEventRef {
   lineNumber: number;
   eventIndex: number;
@@ -1837,21 +1839,110 @@ function updateGraphChrome(): void {
   renderActiveModePanel();
 }
 
+function parserHealthNumber(value: number): string {
+  return `${value}`;
+}
+
+function parserHealthVersionValue(health: ParserHealth): string {
+  return `${health.parserVersion} / ${health.schemaVersion}`;
+}
+
+function parserHealthIssueCount(health: ParserHealth): number {
+  return health.unknownEventCount + health.malformedLineCount + health.skippedLargePayloadCount + health.warnings.length;
+}
+
+function parserHealthRenderableLine(health: ParserHealth, formatValue = parserHealthNumber): ParserHealthLine {
+  return ["Renderable events", formatValue(health.renderableEventCount)];
+}
+
+function parserHealthUnknownEventsLine(health: ParserHealth, formatValue = parserHealthNumber): ParserHealthLine {
+  return ["Unknown events", formatValue(health.unknownEventCount)];
+}
+
+function parserHealthMalformedLinesLine(health: ParserHealth, formatValue = parserHealthNumber): ParserHealthLine {
+  return ["Malformed lines", formatValue(health.malformedLineCount)];
+}
+
+function parserHealthSkippedPayloadsLine(health: ParserHealth, formatValue = parserHealthNumber, label = "Skipped payloads"): ParserHealthLine {
+  return [label, formatValue(health.skippedLargePayloadCount)];
+}
+
+function parserHealthWarningsLine(health: ParserHealth, formatValue = parserHealthNumber): ParserHealthLine {
+  return ["Warnings", formatValue(health.warnings.length)];
+}
+
+function parserHealthIssueLines(health: ParserHealth, formatValue = parserHealthNumber, skippedPayloadLabel = "Skipped payloads"): ParserHealthLine[] {
+  return [
+    parserHealthUnknownEventsLine(health, formatValue),
+    parserHealthMalformedLinesLine(health, formatValue),
+    parserHealthSkippedPayloadsLine(health, formatValue, skippedPayloadLabel),
+    parserHealthWarningsLine(health, formatValue),
+  ];
+}
+
+function parserHealthSummaryLines(health: ParserHealth, formatValue = parserHealthNumber, skippedPayloadLabel = "Skipped payloads"): ParserHealthLine[] {
+  return [
+    ["Parser", parserHealthVersionValue(health)],
+    parserHealthRenderableLine(health, formatValue),
+    ...parserHealthIssueLines(health, formatValue, skippedPayloadLabel),
+  ];
+}
+
+function parserHealthTextLines(lines: ParserHealthLine[]): string[] {
+  return lines.map(([label, value]) => `${label}: ${value}`);
+}
+
+function parserHealthUnknownTypeLines(health: ParserHealth): string[] {
+  return (health.unknownEventTypes || []).map((eventType) => `${eventType.sourceEventType}: ${eventType.count}`);
+}
+
+function parserHealthUnknownEventLines(health: ParserHealth): string[] {
+  const [, count] = parserHealthUnknownEventsLine(health);
+  return [`${count} total`, ...parserHealthUnknownTypeLines(health)];
+}
+
+function parserHealthSyntheticUnknownTypeLines(health: ParserHealth): string[] {
+  return (health.unknownEventTypes || []).map((eventType) => `Unknown: ${eventType.sourceEventType} x${eventType.count}`);
+}
+
+function parserHealthMalformedSampleLines(health: ParserHealth): string[] {
+  return (health.malformedLines || []).slice(0, 5).map((line) => `Line ${line.lineNumber}: ${line.error}`);
+}
+
+function parserHealthMalformedSkippedLines(health: ParserHealth): string[] {
+  return [
+    ...parserHealthTextLines([parserHealthMalformedLinesLine(health), parserHealthSkippedPayloadsLine(health, parserHealthNumber, "Skipped large payloads")]),
+    ...parserHealthMalformedSampleLines(health),
+  ];
+}
+
+function parserHealthModeTextLines(health: ParserHealth): string[] {
+  return [
+    ...parserHealthTextLines([
+      ["Parser", parserHealthVersionValue(health)],
+      ["Lines read", parserHealthNumber(health.totalLinesRead)],
+      ["Parsed events", parserHealthNumber(health.parsedEventCount)],
+      parserHealthRenderableLine(health),
+      ...parserHealthIssueLines(health, parserHealthNumber, "Skipped large payloads"),
+      ["Token telemetry", health.tokenTelemetryAvailable ? "available" : "not logged"],
+    ]),
+    ...parserHealthSyntheticUnknownTypeLines(health),
+  ];
+}
+
 function renderParserHealth(health: ParserHealth | undefined): void {
   if (!health) {
     parserHealthStatus.textContent = "Unavailable";
     parserHealthSummary.replaceChildren();
     return;
   }
-  const issues = health.unknownEventCount + health.malformedLineCount + health.skippedLargePayloadCount;
+  const issues = parserHealthIssueCount(health);
   parserHealthStatus.textContent = issues ? `${issues} issue${issues === 1 ? "" : "s"}` : "Healthy";
-  const rows: [string, string][] = [
-    ["Lines read", `${health.totalLinesRead}`],
-    ["Parsed events", `${health.parsedEventCount}`],
-    ["Renderable events", `${health.renderableEventCount}`],
-    ["Unknown events", `${health.unknownEventCount}`],
-    ["Malformed lines", `${health.malformedLineCount}`],
-    ["Skipped large payloads", `${health.skippedLargePayloadCount}`],
+  const rows: ParserHealthLine[] = [
+    ["Lines read", parserHealthNumber(health.totalLinesRead)],
+    ["Parsed events", parserHealthNumber(health.parsedEventCount)],
+    parserHealthRenderableLine(health),
+    ...parserHealthIssueLines(health, parserHealthNumber, "Skipped large payloads"),
     ["Redacted fields", `${health.redactedFieldCount}`],
     ["Images", `${health.imageCount}`],
     ["Tool calls", `${health.toolCallCount}`],
@@ -1859,7 +1950,7 @@ function renderParserHealth(health: ParserHealth | undefined): void {
     ["File activity", `${health.fileActivityCount}`],
     ["Compactions", `${health.compactionCount}`],
     ["Token telemetry", health.tokenTelemetryAvailable ? "available" : "not logged"],
-    ["Parser", `${health.parserVersion} / ${health.schemaVersion}`],
+    ["Parser", parserHealthVersionValue(health)],
   ];
   const fragment = document.createDocumentFragment();
   rows.forEach(([label, value]) => {
@@ -1873,9 +1964,7 @@ function renderParserHealth(health: ParserHealth | undefined): void {
   });
   if (health.unknownEventTypes?.length) {
     const unknowns = document.createElement("pre");
-    unknowns.textContent = health.unknownEventTypes
-      .map((eventType) => `${eventType.sourceEventType}: ${eventType.count}`)
-      .join("\n");
+    unknowns.textContent = parserHealthUnknownTypeLines(health).join("\n");
     fragment.append(unknowns);
   }
   parserHealthSummary.replaceChildren(fragment);
@@ -5207,14 +5296,7 @@ function renderSummaryModePanel(): void {
       ["Redacted fields", formatNumber(health.redactedFieldCount)],
       ["Images", formatNumber(health.imageCount)],
     ]),
-    summaryFact("Parser Health", [
-      ["Parser", `${health.parserVersion} / ${health.schemaVersion}`],
-      ["Renderable events", formatNumber(health.renderableEventCount)],
-      ["Unknown events", formatNumber(health.unknownEventCount)],
-      ["Malformed lines", formatNumber(health.malformedLineCount)],
-      ["Skipped payloads", formatNumber(health.skippedLargePayloadCount)],
-      ["Warnings", formatNumber(health.warnings.length)],
-    ]),
+    summaryFact("Parser Health", parserHealthSummaryLines(health, formatNumber)),
     summaryFact("Token Context", [
       ["Telemetry", telemetry.latestTotalTokens ? "available" : "not logged"],
       ["Latest tokens", formatNumber(telemetry.latestTotalTokens)],
@@ -5649,24 +5731,19 @@ function renderHealthModePanel(): void {
   grid.className = "mode-card-grid";
   grid.append(
     modeCard("Parser", [
-      `${health.parserVersion} / ${health.schemaVersion}`,
+      parserHealthVersionValue(health),
       `Source confidence: ${health.sourceDetectionConfidence}`,
       `Parsed ${health.parsedEventCount} of ${health.totalLinesRead} lines`,
+      ...parserHealthTextLines([parserHealthRenderableLine(health)]),
     ]),
-    modeCard("Unknown Events", [
-      `${health.unknownEventCount} total`,
-      ...(health.unknownEventTypes || []).map((eventType) => `${eventType.sourceEventType}: ${eventType.count}`),
-    ]),
-    modeCard("Malformed And Skipped", [
-      `Malformed lines: ${health.malformedLineCount}`,
-      `Skipped large payloads: ${health.skippedLargePayloadCount}`,
-      ...((health.malformedLines || []).slice(0, 5).map((line) => `Line ${line.lineNumber}: ${line.error}`)),
-    ]),
+    modeCard("Unknown Events", parserHealthUnknownEventLines(health)),
+    modeCard("Malformed And Skipped", parserHealthMalformedSkippedLines(health)),
     modeCard("Coverage", [
       `Tool calls/results: ${health.toolCallCount}/${health.toolResultCount}`,
       `File activity: ${health.fileActivityCount}`,
       `Token telemetry: ${health.tokenTelemetryAvailable ? "available" : "not logged"}`,
       `Redacted fields: ${health.redactedFieldCount}`,
+      ...parserHealthTextLines([parserHealthWarningsLine(health)]),
     ])
   );
   fragment.append(grid);
@@ -6234,13 +6311,11 @@ function parserHealthSummaryText(current: SessionGraph): string {
   const health = current.parserHealth;
   return [
     `Perlustron parser health for ${shortPath(current.sessionPath)}`,
-    `Parser: ${health.parserVersion} / ${health.schemaVersion}`,
+    `Parser: ${parserHealthVersionValue(health)}`,
     `Source: ${health.source} (${health.sourceDetectionConfidence})`,
     `Lines: ${health.totalLinesRead}`,
     `Parsed/renderable: ${health.parsedEventCount}/${health.renderableEventCount}`,
-    `Unknown events: ${health.unknownEventCount}`,
-    `Malformed lines: ${health.malformedLineCount}`,
-    `Skipped large payloads: ${health.skippedLargePayloadCount}`,
+    ...parserHealthTextLines(parserHealthIssueLines(health, parserHealthNumber, "Skipped large payloads")),
   ].join("\n");
 }
 
@@ -6488,18 +6563,7 @@ function healthModeText(): string {
   if (!graph) {
     return "Waiting for session data.";
   }
-  const health = graph.parserHealth;
-  return [
-    `Parser: ${health.parserVersion} / ${health.schemaVersion}`,
-    `Lines read: ${health.totalLinesRead}`,
-    `Parsed events: ${health.parsedEventCount}`,
-    `Renderable events: ${health.renderableEventCount}`,
-    `Unknown events: ${health.unknownEventCount}`,
-    `Malformed lines: ${health.malformedLineCount}`,
-    `Skipped large payloads: ${health.skippedLargePayloadCount}`,
-    `Token telemetry: ${health.tokenTelemetryAvailable ? "available" : "not logged"}`,
-    ...(health.unknownEventTypes || []).map((eventType) => `Unknown: ${eventType.sourceEventType} x${eventType.count}`),
-  ].join("\n");
+  return parserHealthModeTextLines(graph.parserHealth).join("\n");
 }
 
 function insightsModeText(): string {
