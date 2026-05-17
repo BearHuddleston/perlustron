@@ -1,7 +1,7 @@
 # Fixtures
 
 Fixtures under `fixtures/` are synthetic/sanitized and safe for demos, tests, screenshots, and benchmarks.
-The README screenshot at `docs/assets/perlustron-demo.png` is generated from the bundled sanitized Codex demo with privacy mode enabled.
+The README screenshot at `docs/assets/perlustron-demo.png` is generated from the bundled sanitized Codex demo in privacy mode on the Summary-first workflow, including inspect-first evidence actions and raw-log shareability cues.
 
 ## Current Fixtures
 
