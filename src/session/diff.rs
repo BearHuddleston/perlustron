@@ -468,19 +468,15 @@ fn summarize_trace_side(
         .find(|event| flat_event_is_error_like(event))
         .map(|event| format!("line {} - {}", event.line_number, event.title));
     let error_like_event_count = flat_events.iter().filter(|event| flat_event_is_error_like(event)).count();
-    let mut unique_tool_names = graph
-        .prompts
+    let all_call_refs = collect_call_refs(graph.prompts.iter().flat_map(|prompt| &prompt.calls));
+    let mut unique_tool_names = all_call_refs
         .iter()
-        .flat_map(|prompt| &prompt.calls)
-        .flat_map(flatten_call_names)
+        .map(|call| call.name.clone())
         .collect::<Vec<_>>();
     unique_tool_names.sort();
     unique_tool_names.dedup();
-    let mut longest_tool_calls = graph
-        .prompts
+    let mut longest_tool_calls = all_call_refs
         .iter()
-        .flat_map(|prompt| &prompt.calls)
-        .flat_map(flatten_call_refs)
         .filter(|call| call.duration_ms.is_some())
         .map(|call| ToolCallSummary {
             name: call.name.clone(),
@@ -559,11 +555,8 @@ fn summarize_trace_side(
         assistant_message_count: graph.totals.assistant_message_count,
         tool_call_count: graph.parser_health.tool_call_count,
         tool_result_count: graph.parser_health.tool_result_count,
-        missing_tool_result_count: graph
-            .prompts
+        missing_tool_result_count: all_call_refs
             .iter()
-            .flat_map(|prompt| &prompt.calls)
-            .flat_map(flatten_call_refs)
             .filter(|call| call.status != "completed")
             .count(),
         unique_tool_names,
@@ -599,20 +592,19 @@ fn diff_pattern_key(key: &str, redacted: bool) -> String {
     }
 }
 
-fn flatten_call_names(call: &CallNode) -> Vec<String> {
-    let mut names = vec![call.name.clone()];
-    for child in &call.subagent_nodes {
-        names.extend(flatten_call_names(child));
+fn collect_call_refs<'a>(calls: impl IntoIterator<Item = &'a CallNode>) -> Vec<&'a CallNode> {
+    let mut refs = Vec::new();
+    for call in calls {
+        walk_call_tree(call, &mut |call| refs.push(call));
     }
-    names
+    refs
 }
 
-fn flatten_call_refs(call: &CallNode) -> Vec<&CallNode> {
-    let mut calls = vec![call];
+fn walk_call_tree<'a>(call: &'a CallNode, visitor: &mut impl FnMut(&'a CallNode)) {
+    visitor(call);
     for child in &call.subagent_nodes {
-        calls.extend(flatten_call_refs(child));
+        walk_call_tree(child, visitor);
     }
-    calls
 }
 
 fn diff_files_for_summary(
@@ -645,10 +637,12 @@ fn event_timestamp_map(graph: &SessionGraph) -> HashMap<usize, String> {
                 timestamps.insert(message.event_index, timestamp.clone());
             }
         }
-        for call in prompt.calls.iter().flat_map(flatten_call_refs) {
-            if let Some(timestamp) = call.completed_at.as_ref().or(call.started_at.as_ref()) {
-                timestamps.insert(call.event_index, timestamp.clone());
-            }
+        for call in &prompt.calls {
+            walk_call_tree(call, &mut |call| {
+                if let Some(timestamp) = call.completed_at.as_ref().or(call.started_at.as_ref()) {
+                    timestamps.insert(call.event_index, timestamp.clone());
+                }
+            });
         }
     }
     for compaction in &graph.compactions {

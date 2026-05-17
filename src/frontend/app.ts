@@ -3,11 +3,13 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
+  compactText,
   durationLabel,
   escapeHtml,
   formatBytes,
   formatCountDelta,
   formatDuration,
+  formatNumber,
   formatOptionalPercent,
   formatSessionModified,
   recordsLabel,
@@ -1885,7 +1887,7 @@ function renderContextPressure(telemetry: TokenTelemetry | undefined): void {
     latestPercent === null ? "n/a" : `${Math.min(999, Math.round(latestPercent))}%`;
   contextPressureValue.title =
     telemetry?.latestTotalTokens && telemetry?.contextWindow
-      ? `${telemetry.latestTotalTokens.toLocaleString()} / ${telemetry.contextWindow.toLocaleString()} tokens`
+      ? `${formatNumber(telemetry.latestTotalTokens)} / ${formatNumber(telemetry.contextWindow)} tokens`
       : "No token telemetry in this session";
 
   const samples = telemetry?.samples?.length ? telemetry.samples.slice(-CONTEXT_PRESSURE_SAMPLE_LIMIT) : [];
@@ -5132,7 +5134,7 @@ function renderSummaryModePanel(): void {
   hero.classList.add("summary-hero");
   hero.append(
     modeParagraph(
-      `${sessionName} is a ${sourceLabel(current.source)} trace with ${current.ui.totalTurns.toLocaleString()} turns, ${current.totals.callCount.toLocaleString()} tool calls, and ${current.totals.fileChangeCount.toLocaleString()} file changes.`
+      `${sessionName} is a ${sourceLabel(current.source)} trace with ${formatNumber(current.ui.totalTurns)} turns, ${formatNumber(current.totals.callCount)} tool calls, and ${formatNumber(current.totals.fileChangeCount)} file changes.`
     ),
     modeParagraph(
       `${rawShareStatus}. Sanitized graph/export and copy-safe references reduce exposure compared with raw logs, but they still require human judgment before sharing.`
@@ -5142,9 +5144,9 @@ function renderSummaryModePanel(): void {
   const triage = document.createElement("div");
   triage.className = "summary-triage";
   const whatHappened = modeCard("What Happened", [
-    `${current.ui.totalTurns.toLocaleString()} turns across ${current.totals.promptCount.toLocaleString()} prompts`,
-    `${current.totals.completedCallCount.toLocaleString()} completed tool calls; ${current.totals.fileChangeCount.toLocaleString()} file changes`,
-    `${health.unknownEventCount.toLocaleString()} unknown and ${health.malformedLineCount.toLocaleString()} malformed parser records`,
+    `${formatNumber(current.ui.totalTurns)} turns across ${formatNumber(current.totals.promptCount)} prompts`,
+    `${formatNumber(current.totals.completedCallCount)} completed tool calls; ${formatNumber(current.totals.fileChangeCount)} file changes`,
+    `${formatNumber(health.unknownEventCount)} unknown and ${formatNumber(health.malformedLineCount)} malformed parser records`,
   ]);
   const whatActions = document.createElement("div");
   whatActions.className = "mode-actions";
@@ -5182,12 +5184,12 @@ function renderSummaryModePanel(): void {
       ["Path", shortPath(current.sessionPath) || current.sessionPath],
     ]),
     summaryFact("Activity", [
-      ["Prompts", current.totals.promptCount.toLocaleString()],
-      ["Turns", current.ui.totalTurns.toLocaleString()],
-      ["Tool calls", `${current.totals.completedCallCount.toLocaleString()} / ${current.totals.callCount.toLocaleString()} completed`],
-      ["Assistant messages", current.totals.assistantMessageCount.toLocaleString()],
-      ["File changes", current.totals.fileChangeCount.toLocaleString()],
-      ["Compactions", current.totals.compactionCount.toLocaleString()],
+      ["Prompts", formatNumber(current.totals.promptCount)],
+      ["Turns", formatNumber(current.ui.totalTurns)],
+      ["Tool calls", `${formatNumber(current.totals.completedCallCount)} / ${formatNumber(current.totals.callCount)} completed`],
+      ["Assistant messages", formatNumber(current.totals.assistantMessageCount)],
+      ["File changes", formatNumber(current.totals.fileChangeCount)],
+      ["Compactions", formatNumber(current.totals.compactionCount)],
       ["Dynamic tools", current.metadata.dynamicTools.length ? current.metadata.dynamicTools.map((tool) => tool.name).slice(0, 5).join(", ") : "none logged"],
     ]),
     summaryFact("Privacy", [
@@ -5202,21 +5204,21 @@ function renderSummaryModePanel(): void {
       ["Raw logs", shareability.rawLogsSafeToShare ? "safe to share" : "review/redact first"],
       ["Raw caution", shareability.rawLogCaution || "Review prompts, paths, and tool output before sharing raw logs."],
       ["Sanitized graph", shareability.sanitizedGraphNote || "Use sanitized graph/export surfaces for sharing."],
-      ["Redacted fields", health.redactedFieldCount.toLocaleString()],
-      ["Images", health.imageCount.toLocaleString()],
+      ["Redacted fields", formatNumber(health.redactedFieldCount)],
+      ["Images", formatNumber(health.imageCount)],
     ]),
     summaryFact("Parser Health", [
       ["Parser", `${health.parserVersion} / ${health.schemaVersion}`],
-      ["Renderable events", health.renderableEventCount.toLocaleString()],
-      ["Unknown events", health.unknownEventCount.toLocaleString()],
-      ["Malformed lines", health.malformedLineCount.toLocaleString()],
-      ["Skipped payloads", health.skippedLargePayloadCount.toLocaleString()],
-      ["Warnings", health.warnings.length.toLocaleString()],
+      ["Renderable events", formatNumber(health.renderableEventCount)],
+      ["Unknown events", formatNumber(health.unknownEventCount)],
+      ["Malformed lines", formatNumber(health.malformedLineCount)],
+      ["Skipped payloads", formatNumber(health.skippedLargePayloadCount)],
+      ["Warnings", formatNumber(health.warnings.length)],
     ]),
     summaryFact("Token Context", [
       ["Telemetry", telemetry.latestTotalTokens ? "available" : "not logged"],
-      ["Latest tokens", telemetry.latestTotalTokens?.toLocaleString() ?? "n/a"],
-      ["Context window", telemetry.contextWindow?.toLocaleString() ?? "n/a"],
+      ["Latest tokens", formatNumber(telemetry.latestTotalTokens)],
+      ["Context window", formatNumber(telemetry.contextWindow)],
       ["Context pressure", formatOptionalPercent(telemetry.latestContextPercent)],
       ["Primary rate limit", formatOptionalPercent(telemetry.primaryRateLimitPercent)],
       ["Secondary rate limit", formatOptionalPercent(telemetry.secondaryRateLimitPercent)],
@@ -5297,7 +5299,7 @@ function summaryInsightActionRow(buttons: HTMLButtonElement[]): HTMLElement {
 
 function summaryInsightMeta(item: InspectionQueueItem): string {
   const line = firstInsightLine(item);
-  const eventLabel = item.eventIds.length ? `${item.eventIds.length.toLocaleString()} linked events` : "no linked event ids";
+  const eventLabel = item.eventIds.length ? `${formatNumber(item.eventIds.length)} linked events` : "no linked event ids";
   const lineLabel = line ? `line ${line}` : "no event line logged";
   return [item.severity, item.confidence, item.directness, lineLabel, eventLabel].filter(Boolean).join(" - ");
 }
@@ -5411,7 +5413,7 @@ function modeTimelineRows(): ModeEventRow[] {
       toolName: "",
       filePath: "",
       title: skipped.reason,
-      detail: `${skipped.byteLength.toLocaleString()} bytes`,
+      detail: `${formatNumber(skipped.byteLength)} bytes`,
       timestamp: null,
       flags: ["large"],
       source: skipped,
@@ -6578,10 +6580,7 @@ function shortcutsText(): string {
 }
 
 function compactUiText(text: string, maxChars: number): string {
-  if (text.length <= maxChars) {
-    return text;
-  }
-  return `${text.slice(0, maxChars)}\n...[truncated]`;
+  return compactText(text, maxChars, "\n...[truncated]");
 }
 
 function contextPressureSummary(telemetry: TokenTelemetry | undefined): string {
@@ -6589,8 +6588,8 @@ function contextPressureSummary(telemetry: TokenTelemetry | undefined): string {
     return "no token telemetry";
   }
   const percent = telemetry.latestContextPercent === null ? "n/a" : `${Math.round(telemetry.latestContextPercent)}%`;
-  const window = telemetry.contextWindow ? ` / ${telemetry.contextWindow.toLocaleString()}` : "";
-  return `${telemetry.latestTotalTokens.toLocaleString()}${window} tokens (${percent})`;
+  const window = telemetry.contextWindow ? ` / ${formatNumber(telemetry.contextWindow)}` : "";
+  return `${formatNumber(telemetry.latestTotalTokens)}${window} tokens (${percent})`;
 }
 
 function openSessionOverview(): void {

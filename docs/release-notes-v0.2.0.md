@@ -32,7 +32,7 @@ Wave 3 consolidation note: the Summary-first, copy-safe reference, shareability,
 ## Release Validation Focus
 
 - Confirm `docs/assets/perlustron-demo.png` was generated from sanitized bundled demo data, not private logs.
-- Confirm `npm run typecheck`, `npm run build:frontend`, `npm run workflow:check`, `npm run offline:check`, and the full `npm run check` suite pass on the selected release candidate.
+- Confirm `npm run build:frontend` and the full `npm run check` suite pass on the selected release candidate.
 - Confirm `perlustron --version` reports `0.2.0` from the release candidate binary.
 - For parser/media-heavy release candidates, record a 100k generated-session benchmark and an embedded-image evidence lookup smoke in the PR or release checklist notes rather than making hardware-specific performance promises.
 

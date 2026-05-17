@@ -2,14 +2,10 @@
 
 import { readFileSync } from "node:fs";
 
-const workflow = readFileSync(".github/workflows/check.yml", "utf8");
-const failures = [];
+import { createCheck } from "./check-helpers.mjs";
 
-function expect(condition, message) {
-  if (!condition) {
-    failures.push(message);
-  }
-}
+const workflow = readFileSync(".github/workflows/check.yml", "utf8");
+const { expect, finish } = createCheck("CI workflow");
 
 const runChecksIndex = workflow.indexOf("      - name: Run checks");
 const browserSmokeIndex = workflow.indexOf("      - name: Run browser smoke checks");
@@ -45,10 +41,4 @@ if (browserSmokeIndex !== -1) {
   );
 }
 
-if (failures.length) {
-  console.error("CI workflow check failed:");
-  failures.forEach((failure) => console.error(`- ${failure}`));
-  process.exit(1);
-}
-
-console.log("CI workflow check passed");
+finish();

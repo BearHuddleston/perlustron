@@ -6,9 +6,14 @@ use std::{
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::mpsc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
     time::Duration,
 };
+
+static TEMP_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn perlustron_bin() -> PathBuf {
     if let Some(path) = option_env!("CARGO_BIN_EXE_perlustron") {
@@ -28,11 +33,31 @@ fn repo_path(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
 }
 
-fn temp_path(name: &str, extension: &str) -> PathBuf {
-    env::temp_dir().join(format!(
-        "perlustron-cli-smoke-{}-{name}.{extension}",
-        std::process::id()
-    ))
+struct TempDirGuard {
+    path: PathBuf,
+}
+
+impl TempDirGuard {
+    fn new(test_name: &str) -> Self {
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = env::temp_dir().join(format!(
+            "perlustron-cli-smoke-{}-{test_name}-{counter}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("create smoke test temp directory");
+        Self { path }
+    }
+
+    fn path(&self, name: &str, extension: &str) -> PathBuf {
+        self.path.join(format!("{name}.{extension}"))
+    }
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
 }
 
 fn run_ok(args: &[&str]) -> String {
@@ -66,6 +91,7 @@ fn cli_help_and_version_are_useful() {
 
 #[test]
 fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
+    let temp = TempDirGuard::new("reports");
     let codex = repo_path("fixtures/codex-sanitized.jsonl");
     let loop_fixture = repo_path("fixtures/codex-loop-error.jsonl");
     let codex_str = codex.to_str().expect("fixture path is utf-8");
@@ -78,7 +104,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     let scan = run_ok(&["scan", codex_str]);
     assert!(scan.contains("Perlustron scan"));
 
-    let sanitized = temp_path("sanitized", "jsonl");
+    let sanitized = temp.path("sanitized", "jsonl");
     let sanitized_str = sanitized.to_str().expect("temp path is utf-8");
     run_ok(&[
         "sanitize",
@@ -91,7 +117,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     let sanitized_text = fs::read_to_string(&sanitized).expect("sanitized output");
     assert!(sanitized_text.contains("perlustron_redaction_report"));
 
-    let html_report = temp_path("report", "html");
+    let html_report = temp.path("report", "html");
     let html_report_str = html_report.to_str().expect("temp path is utf-8");
     run_ok(&[
         "export",
@@ -106,7 +132,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     assert!(html.contains("Insight Summary"));
     assert_no_sensitive_loop_fixture_text(&html);
 
-    let markdown_report = temp_path("report", "md");
+    let markdown_report = temp.path("report", "md");
     let markdown_report_str = markdown_report.to_str().expect("temp path is utf-8");
     run_ok(&[
         "export",
@@ -121,7 +147,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     assert!(markdown.contains("## Insight Summary"));
     assert_no_sensitive_loop_fixture_text(&markdown);
 
-    let json_trace = temp_path("trace", "json");
+    let json_trace = temp.path("trace", "json");
     let json_trace_str = json_trace.to_str().expect("temp path is utf-8");
     run_ok(&[
         "export",
@@ -139,7 +165,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     assert!(diff_text.contains("Perlustron session diff"));
     assert!(diff_text.contains("first likely divergence"));
 
-    let diff_json = temp_path("diff", "json");
+    let diff_json = temp.path("diff", "json");
     let diff_json_str = diff_json.to_str().expect("temp path is utf-8");
     run_ok(&[
         "diff",
@@ -157,7 +183,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     assert!(diff.contains("\"redactionReport\""));
     assert_no_sensitive_loop_fixture_text(&diff);
 
-    let diff_html = temp_path("diff", "html");
+    let diff_html = temp.path("diff", "html");
     let diff_html_str = diff_html.to_str().expect("temp path is utf-8");
     run_ok(&[
         "diff",
@@ -173,7 +199,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     assert!(diff_html_text.contains("Perlustron Session Diff"));
     assert_no_sensitive_loop_fixture_text(&diff_html_text);
 
-    let insights_json = temp_path("insights", "json");
+    let insights_json = temp.path("insights", "json");
     let insights_json_str = insights_json.to_str().expect("temp path is utf-8");
     run_ok(&[
         "insights",
@@ -189,14 +215,14 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
     assert!(insights.contains("\"repeatedPatterns\""));
     assert_no_sensitive_loop_fixture_text(&insights);
 
-    let unknowns_json = temp_path("unknowns", "json");
+    let unknowns_json = temp.path("unknowns", "json");
     let unknowns_json_str = unknowns_json.to_str().expect("temp path is utf-8");
     run_ok(&["unknowns", codex_str, "--redacted", "-o", unknowns_json_str]);
     let unknowns = fs::read_to_string(&unknowns_json).expect("unknowns json");
     assert!(unknowns.contains("\"suggestedGithubIssue\""));
     assert!(unknowns.contains("\"redactedSamples\""));
 
-    let fixture_report = temp_path("fixture-report", "md");
+    let fixture_report = temp.path("fixture-report", "md");
     let fixture_report_str = fixture_report.to_str().expect("temp path is utf-8");
     run_ok(&[
         "fixture-report",
@@ -228,6 +254,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
 
 #[test]
 fn demo_server_serves_local_assets_and_requires_api_token() {
+    let temp = TempDirGuard::new("server");
     let listener = TcpListener::bind("127.0.0.1:0").expect("reserve local port");
     let port = listener.local_addr().expect("local address").port();
     drop(listener);
@@ -302,7 +329,7 @@ fn demo_server_serves_local_assets_and_requires_api_token() {
     assert!(unknowns.starts_with("HTTP/1.1 200 OK"), "{unknowns}");
     assert!(unknowns.contains("\"suggestedGithubIssue\""));
 
-    let outside_session = temp_path("outside-session", "jsonl");
+    let outside_session = temp.path("outside-session", "jsonl");
     fs::write(&outside_session, "{}\n").expect("write outside session probe");
     let outside = http_get(
         port,

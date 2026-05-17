@@ -2,23 +2,13 @@
 
 import { readFileSync } from "node:fs";
 
+import { createCheck, cssBlockFor } from "./check-helpers.mjs";
+
 const html = readFileSync("static/index.html", "utf8");
 const app = readFileSync("src/frontend/app.ts", "utf8");
 const styles = readFileSync("static/styles.css", "utf8");
 
-const failures = [];
-
-function expect(condition, message) {
-  if (!condition) {
-    failures.push(message);
-  }
-}
-
-function blockFor(selector) {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = styles.match(new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`, "m"));
-  return match?.groups?.body ?? "";
-}
+const { expect, finish } = createCheck("Summary mode shell");
 
 const modeNavIndex = html.indexOf('id="mode-nav"');
 const summaryButtonIndex = html.indexOf('data-app-mode="summary"');
@@ -65,17 +55,11 @@ expect(!app.includes("localSessionToken") || !/renderSummaryModePanel[\s\S]*loca
 expect(app.includes('if (nextMode === "summary")'), "Selecting Summary should have an explicit chrome branch.");
 expect(app.includes('return activeAppMode === "map"'), "Event Context should remain Map-only after Summary is added.");
 
-const summaryGrid = blockFor(".summary-shell-grid");
+const summaryGrid = cssBlockFor(styles, ".summary-shell-grid");
 expect(summaryGrid.length > 0, "Summary shell should have CSS grid styling.");
 expect(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/.test(summaryGrid), "Summary shell grid should be responsive.");
 expect(styles.includes(".summary-fact"), "Summary facts should have dedicated card styling.");
 expect(styles.includes(".summary-triage") && /\.summary-triage\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/m.test(styles), "Summary triage cards should wrap responsively.");
 expect(styles.includes("/* Wave 2 frontend polish"), "Wave-2 chrome polish styles should stay grouped and documented.");
 
-if (failures.length) {
-  console.error("Summary mode shell check failed:");
-  failures.forEach((failure) => console.error(`- ${failure}`));
-  process.exit(1);
-}
-
-console.log("Summary mode shell check passed");
+finish();

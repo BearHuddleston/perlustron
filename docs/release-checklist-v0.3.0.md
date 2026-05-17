@@ -19,10 +19,7 @@ Use this checklist after the release-prep changes are reviewed and merged to `ma
 git checkout main
 git pull --ff-only origin main
 npm ci
-npm run typecheck
 npm run build:frontend
-npm run workflow:check
-npm run offline:check
 npm run check
 cargo +stable run --quiet -- --version
 ```
