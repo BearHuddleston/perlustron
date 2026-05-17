@@ -15,12 +15,27 @@ const summaryButtonIndex = html.indexOf('data-app-mode="summary"');
 const mapButtonIndex = html.indexOf('data-app-mode="map"');
 const timelineButtonIndex = html.indexOf('data-app-mode="timeline"');
 const transcriptButtonIndex = html.indexOf('data-app-mode="transcript"');
+const statusBarIndex = html.indexOf('id="status-bar"');
+const metadataListIndex = html.indexOf('id="metadata-list"');
 
 expect(modeNavIndex >= 0, "Mode navigation should exist in static/index.html.");
 expect(summaryButtonIndex > modeNavIndex, "Summary should be available as a primary mode button.");
 expect(mapButtonIndex > summaryButtonIndex, "Summary should lead the primary mode buttons without removing Map.");
 expect(timelineButtonIndex > mapButtonIndex, "Timeline button should remain after Map.");
 expect(transcriptButtonIndex > timelineButtonIndex, "Transcript button should remain after Timeline.");
+expect(statusBarIndex > 0, "Session metadata should render in a persistent status bar.");
+expect(metadataListIndex > statusBarIndex, "Metadata rows should mount inside the status bar.");
+expect(html.indexOf('id="metadata-list"', metadataListIndex + 1) === -1, "Metadata list should have a single DOM target.");
+expect(!html.includes('aria-label="Session metadata"'), "Session metadata should not be a sidebar card.");
+expect(!html.includes('id="inspector-dock"'), "Sessions sidebar should be removed from the shell.");
+expect(!html.includes('id="stream-panel"'), "Sidebar stream panel should be removed from the shell.");
+expect(!html.includes('data-inspector-tab='), "Removed sidebar tabs should not render after gutting the sidebar.");
+expect(!html.includes('data-inspector-tab="saved"'), "Saved views should not render as a sidebar tab.");
+expect(!html.includes('data-saved-view='), "Saved view shortcuts should not render in the sidebar.");
+expect(!html.includes('id="prompt-list"'), "Prompt cards should not render as a sidebar session list.");
+expect(!html.includes('data-session-filter='), "Session list filters should not render in the sidebar.");
+expect(html.includes('class="stage-root-list"'), "Session roots should move into the stage header above the map.");
+expect(!html.includes('id="session-meta"'), "Map header should not repeat source/session/cwd metadata already shown elsewhere.");
 expect(/type AppMode = [^;]*"summary"/m.test(app), "AppMode should include summary.");
 expect(
   /DEFAULT_APP_MODES\s*=\s*\["summary",\s*"map",\s*"timeline",\s*"transcript"\]/m.test(app),
@@ -63,9 +78,19 @@ expect(styles.includes(".summary-triage") && /\.summary-triage\s*\{[^}]*grid-tem
 const topActionButton = cssBlockFor(styles, ".top-actions button");
 const modeNav = cssBlockFor(styles, ".mode-nav");
 const modeFilters = cssBlockFor(styles, ".mode-filters");
+const statusBar = cssBlockFor(styles, "#status-bar");
 expect(/border-radius:\s*var\(--radius-sm\)/.test(topActionButton) && /box-shadow:/m.test(topActionButton), "Top action chrome polish should be folded into the base button selector.");
 expect(/background:\s*[\s\S]*linear-gradient/.test(modeNav) && /scrollbar-width:\s*thin/.test(modeNav), "Mode nav chrome polish should be folded into the base nav selector.");
 expect(/padding:\s*12px 28px/.test(modeFilters) && /scrollbar-width:\s*thin/.test(modeFilters), "Mode filter chrome polish should be folded into the base filter selector.");
+expect(/grid-template-columns:\s*auto minmax\(0,\s*1fr\)/.test(statusBar), "Status bar should reserve a label and a scrollable metadata row.");
+expect(styles.includes(".status-bar-items .root-row.metadata-row"), "Metadata rows should have compact status-bar styling.");
+expect(styles.includes(".stage-root-list .root-row"), "Stage roots should have compact header styling.");
+expect(!styles.includes(".stage-roots-label"), "Stage roots should not keep a redundant Roots label.");
+expect(!styles.includes("#inspector-dock"), "Sidebar dock styling should be removed with the sidebar.");
+expect(!styles.includes("#stream-panel"), "Stream panel styling should be removed with the sidebar.");
+expect(!styles.includes(".saved button"), "Saved-view sidebar styling should be removed with the Saved tab.");
+expect(!styles.includes(".prompt-row"), "Prompt-card sidebar styling should be removed with the prompt list.");
+expect(app.includes('root.label !== "Session file"'), "Stage roots should omit the session file already shown in the top session picker.");
 expect(!styles.includes("/* Wave 2 frontend polish"), "Obsolete Wave-2 chrome polish grouping comment should be removed after folding overrides.");
 
 finish();
