@@ -19,7 +19,7 @@ const MAX_SUBAGENT_INSPECTION_NODES = 72;
 
 type SessionSource = "codex" | "claude";
 type Mode = "overview" | "inspect";
-type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export";
+type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export" | "settings";
 type SessionFilter = "all" | "live" | "pinned";
 type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction";
 type InspectorPanel = "sessions" | "saved" | "raw" | "health";
@@ -38,7 +38,7 @@ type TimerId = ReturnType<typeof setTimeout>;
 
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
 type DefaultAppMode = (typeof DEFAULT_APP_MODES)[number];
-const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export"] as const satisfies readonly AppMode[];
+const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
 const APP_MODE_SET = new Set<AppMode>(APP_MODES);
 const DEFAULT_APP_MODE_SET = new Set<AppMode>(DEFAULT_APP_MODES);
 type FileChangeType = (typeof FILE_CHANGE_TYPES)[number];
@@ -814,6 +814,10 @@ const streamData = queryRequired<HTMLElement>("#stream-data");
 const streamImages = queryRequired<HTMLElement>("#stream-images");
 const streamClose = queryRequired<HTMLButtonElement>("#stream-close");
 const streamMinimize = queryRequired<HTMLButtonElement>("#stream-minimize");
+const streamCopyRef = queryRequired<HTMLButtonElement>("#stream-copy-ref");
+const streamOpenTimeline = queryRequired<HTMLButtonElement>("#stream-open-timeline");
+const streamOpenTranscript = queryRequired<HTMLButtonElement>("#stream-open-transcript");
+const streamOpenRaw = queryRequired<HTMLButtonElement>("#stream-open-raw");
 const prevEvent = queryRequired<HTMLButtonElement>("#prev-event");
 const nextEvent = queryRequired<HTMLButtonElement>("#next-event");
 const stageTurnCount = queryRequired<HTMLElement>("#stage-turn-count");
@@ -1102,7 +1106,7 @@ function normalizeSource(value: string | null | undefined): SessionSource {
 
 function normalizeAppMode(value: string | null | undefined): AppMode {
   const normalized = value?.trim().toLowerCase();
-  return normalized && APP_MODE_SET.has(normalized as AppMode) ? (normalized as AppMode) : "map";
+  return normalized && APP_MODE_SET.has(normalized as AppMode) ? (normalized as AppMode) : "summary";
 }
 
 function sourceLabel(source: SessionSource = activeSource): string {
@@ -1190,9 +1194,14 @@ streamClose.addEventListener("click", () => {
   selectedNodeId = null;
   hideEventPopup();
   syncInstanceColors();
+  syncEventContextActions();
 });
 
 streamMinimize.addEventListener("click", () => setEventContextCollapsed(!eventContextCollapsed));
+streamCopyRef.addEventListener("click", copySelectedEventRef);
+streamOpenTimeline.addEventListener("click", () => openSelectedEventMode("timeline"));
+streamOpenTranscript.addEventListener("click", () => openSelectedEventMode("transcript"));
+streamOpenRaw.addEventListener("click", () => openSelectedEventMode("raw"));
 setEventContextCollapsed(false);
 
 window.addEventListener("resize", resize);
@@ -4514,6 +4523,7 @@ function openStream(
   contextEventTitle.textContent = node.title;
   streamTitle.textContent = node.title;
   setRawJsonPayload(node.source);
+  syncEventContextActions();
   renderStreamImages(imagesForNode(node));
   const payload = node.detail || node.body || node.title;
   if (restartStream) {
@@ -4546,6 +4556,10 @@ function typeStream(payload: string): void {
 function renderStreamImages(images: ContentImageRef[] = []): void {
   streamImages.replaceChildren();
   if (!images.length) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "stream-image-placeholder";
+    placeholder.textContent = "No event media available; inspect Timeline, Transcript, or Raw for auditable evidence.";
+    streamImages.append(placeholder);
     return;
   }
 
@@ -4571,6 +4585,7 @@ function renderStreamImages(images: ContentImageRef[] = []): void {
     });
     preview.addEventListener("error", () => {
       figure.classList.add("load-error");
+      caption.textContent = "Image unavailable in this local/privacy context; use Raw or Export for redacted evidence.";
     });
 
     const caption = document.createElement("figcaption");
@@ -4814,6 +4829,86 @@ function isEventPopupVisible(): boolean {
 
 function hideEventPopup(): void {
   eventPopup.classList.add("hidden");
+  syncEventContextActions();
+}
+
+function selectedEventContext(): { node: SceneNode; row?: ModeEventRow } | null {
+  if (!selectedNodeId) {
+    return null;
+  }
+  const node = nodeById.get(selectedNodeId);
+  if (!node) {
+    return null;
+  }
+  const row = modeTimelineRows().find((candidate) => candidate.node?.id === node.id || candidate.eventIndex === node.eventIndex);
+  return row ? { node, row } : { node };
+}
+
+function selectedEventReferenceText(): string | null {
+  const selected = selectedEventContext();
+  if (!selected) {
+    return null;
+  }
+  return safeEvidenceReferenceText(selected.node.title, selected.row?.lineNumber, selected.node.eventIndex, selected.node.kind);
+}
+
+function safeEvidenceReferenceText(title: string, lineNumber: number | null | undefined, eventIndex: number | null | undefined, kind: string): string {
+  return [
+    "Perlustron evidence reference",
+    lineNumber ? `line: ${lineNumber}` : null,
+    eventIndex !== null && eventIndex !== undefined ? `event_index: ${eventIndex}` : null,
+    `kind: ${kind}`,
+    `summary: ${compactUiText(title, 180)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function syncEventContextActions(): void {
+  const hasSelection = Boolean(selectedEventContext());
+  eventPopup.classList.toggle("has-selection", hasSelection);
+  for (const button of [streamCopyRef, streamOpenTimeline, streamOpenTranscript, streamOpenRaw]) {
+    button.disabled = !hasSelection;
+  }
+  if (!hasSelection) {
+    streamCopyRef.textContent = "Copy Ref";
+  }
+}
+
+async function copySelectedEventRef(): Promise<void> {
+  const referenceText = selectedEventReferenceText();
+  if (!referenceText) {
+    syncEventContextActions();
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(referenceText);
+    streamCopyRef.textContent = "Copied";
+    window.setTimeout(() => {
+      streamCopyRef.textContent = "Copy Ref";
+    }, 1200);
+  } catch (error) {
+    openSyntheticStream("COPY", "Copy failed", errorMessage(error));
+  }
+}
+
+function openSelectedEventMode(nextMode: AppMode): void {
+  const selected = selectedEventContext();
+  if (!selected) {
+    syncEventContextActions();
+    return;
+  }
+  const selectedId = selected.node.id;
+  const selectedPromptId = selected.node.promptId;
+  const selectedPayload = selected.row?.source ?? selected.node.source;
+  selectAppMode(nextMode);
+  selectedNodeId = selectedId;
+  activePromptId = selectedPromptId;
+  setRawJsonPayload(selectedPayload);
+  syncInstanceColors();
+  if (nextMode !== "map") {
+    renderActiveModePanel();
+  }
 }
 
 function setEventContextCollapsed(collapsed: boolean): void {
@@ -4931,6 +5026,9 @@ function renderActiveModePanel(): void {
     case "export":
       renderExportModePanel();
       return;
+    case "settings":
+      renderSettingsModePanel();
+      return;
   }
 }
 
@@ -4969,6 +5067,48 @@ function renderSummaryModePanel(): void {
       `${rawShareStatus}. ${shareability.sanitizedGraphNote || "Sanitized graph data is intended for UI and report sharing after review."}`
     )
   );
+
+  const triage = document.createElement("div");
+  triage.className = "summary-triage";
+  const inspectFirst = current.insights.inspectionQueue[0];
+  const whatHappened = modeCard("What Happened", [
+    `${current.ui.totalTurns.toLocaleString()} turns across ${current.totals.promptCount.toLocaleString()} prompts`,
+    `${current.totals.completedCallCount.toLocaleString()} completed tool calls; ${current.totals.fileChangeCount.toLocaleString()} file changes`,
+    `${health.unknownEventCount.toLocaleString()} unknown and ${health.malformedLineCount.toLocaleString()} malformed parser records`,
+  ]);
+  const whatActions = document.createElement("div");
+  whatActions.className = "mode-actions";
+  whatActions.append(
+    modeButton("Open Timeline", () => selectAppMode("timeline")),
+    modeButton("Read Transcript", () => selectAppMode("transcript"))
+  );
+  whatHappened.append(whatActions);
+  const inspectCard = modeCard(
+    "Inspect First",
+    inspectFirst
+      ? [`${inspectFirst.severity.toUpperCase()}: ${inspectFirst.title}`, inspectFirst.redactionSafeSummary || inspectFirst.summary]
+      : ["No high-priority findings detected.", "Parser health and raw inspection remain available for audit."]
+  );
+  const inspectActions = document.createElement("div");
+  inspectActions.className = "mode-actions";
+  inspectActions.append(
+    modeButton("Open Insights", () => selectAppMode("insights")),
+    modeButton("Open Evidence", () => focusEventByLine(inspectFirst?.lineNumbers[0], inspectFirst?.title || "Inspection queue", inspectFirst || current.insights))
+  );
+  inspectCard.append(inspectActions);
+  const shareCard = modeCard("Safe To Share", [
+    rawShareStatus,
+    shareability.sanitizedGraphNote || "Sanitized graph data is intended for UI and report sharing after review.",
+    privacy.apiTokenRequired ? "Local API token is required for browser/API access; token value is not shown." : "No local API token required by this run.",
+  ]);
+  const shareActions = document.createElement("div");
+  shareActions.className = "mode-actions";
+  shareActions.append(
+    modeButton("Open Export", () => selectAppMode("export")),
+    modeButton("Audit Raw", () => selectAppMode("raw"))
+  );
+  shareCard.append(shareActions);
+  triage.append(whatHappened, inspectCard, shareCard);
 
   const grid = document.createElement("div");
   grid.className = "summary-shell-grid";
@@ -5024,7 +5164,7 @@ function renderSummaryModePanel(): void {
       ["Secondary rate limit", formatOptionalPercent(telemetry.secondaryRateLimitPercent)],
     ])
   );
-  shell.append(hero, grid);
+  shell.append(hero, triage, grid);
 
   if (health.warnings.length || current.insights.warnings.length) {
     shell.append(modeCard("Warnings", [...health.warnings, ...current.insights.warnings].slice(0, 10)));
@@ -5603,6 +5743,31 @@ function renderExportModePanel(): void {
   modePanelContent.replaceChildren(grid);
 }
 
+function renderSettingsModePanel(): void {
+  const current = currentGraph();
+  modePanelSummary.textContent = "Local observatory settings";
+  const grid = document.createElement("div");
+  grid.className = "mode-card-grid";
+  grid.append(
+    modeCard("Session", [
+      `Source: ${sourceLabel(current.source)}`,
+      `Session: ${activeSessionPath ? shortPath(activeSessionPath) : shortPath(current.sessionPath) || "latest"}`,
+      `Live updates: ${isTailing ? (liveEventsConnected ? "SSE stream" : "fallback polling") : "paused"}`,
+    ]),
+    modeCard("Renderer", [
+      "Three.js instancing",
+      `Mode panel: ${activeAppMode === "settings" ? "visible" : "hidden"}`,
+      `Raw JSON: ${rawExpanded ? "visible" : "collapsed"}`,
+    ]),
+    modeCard("Backend", [
+      "Rust Axum JSONL parser",
+      `Parser: ${current.parserHealth.parserVersion} / ${current.parserHealth.schemaVersion}`,
+      `API token required: ${current.privacySummary.apiTokenRequired ? "yes" : "no"}`,
+    ])
+  );
+  modePanelContent.replaceChildren(grid);
+}
+
 function modeCard(title: string, lines: string[] = []): HTMLElement {
   const card = document.createElement("section");
   card.className = "mode-card";
@@ -5856,13 +6021,22 @@ async function ensureUnknownsReportLoaded(force = false): Promise<UnknownsReport
   return unknownsReportPromise;
 }
 
-function focusEventByLine(lineNumber: number | null | undefined, title: string, payload: unknown): void {
+function focusEventByLine(lineNumber: number | null | undefined, title: string, payload: unknown, destination: AppMode = "raw"): void {
   if (lineNumber) {
     const row = modeTimelineRows().find((candidate) => candidate.lineNumber === lineNumber);
     if (row) {
       inspectModeRow(row);
+      if (row.node) {
+        openSelectedEventMode(destination);
+      } else if (destination !== "map") {
+        selectAppMode(destination);
+        setRawJsonPayload(row.source);
+      }
       return;
     }
+  }
+  if (destination !== "map") {
+    selectAppMode(destination);
   }
   openSyntheticStream("RAW", title, JSON.stringify(payload, null, 2));
   setRawJsonPayload(payload);
@@ -6071,6 +6245,9 @@ function selectAppMode(nextMode: AppMode): void {
   }
   if (nextMode === "diff") {
     exitInspectMode({ preserveCamera: true });
+    return;
+  }
+  if (nextMode === "settings") {
     return;
   }
   openSyntheticStream("EXPORT", "Export reports", exportModeText());
@@ -6430,11 +6607,7 @@ function setupControls() {
   });
 
   settingsButton.addEventListener("click", () => {
-    openSyntheticStream(
-      "SETTINGS",
-      "Local observatory settings",
-      `Source: ${sourceLabel()}\nSession: ${activeSessionPath ? shortPath(activeSessionPath) : "latest"}\nRenderer: Three.js instancing\nBackend: Rust Axum JSONL parser\nLive updates: ${isTailing ? (liveEventsConnected ? "SSE stream" : "fallback polling") : "paused"}\nRaw JSON: ${rawExpanded ? "visible" : "collapsed"}`
-    );
+    selectAppMode("settings");
   });
 
   openEditorButton.addEventListener("click", async () => {
@@ -6904,6 +7077,7 @@ function openSyntheticStream(kind: string, title: string, body: string): void {
   contextEventTitle.textContent = title;
   streamTitle.textContent = title;
   setRawJsonPayload({ kind, title, body, generatedAt: new Date().toISOString() });
+  syncEventContextActions();
   renderStreamImages();
   typeStream(body);
 }

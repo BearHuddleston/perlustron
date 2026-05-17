@@ -38,6 +38,8 @@ expect(
 );
 expect(app.includes('let activeAppMode: AppMode = normalizeAppMode(new URLSearchParams(window.location.search).get("mode"));'), "Initial mode should be parsed from ?mode= deep links.");
 expect(app.includes("function normalizeAppMode"), "Deep-link parsing should normalize app modes through a dedicated helper.");
+expect(/normalizeAppMode[\s\S]*:\s*"summary";/.test(app), "Summary should be the default landing mode when no ?mode= is provided.");
+expect(/<button class="active" type="button" data-app-mode="summary">Summary<\/button>/.test(html), "Static shell should mark Summary as the initial active primary mode.");
 expect(app.includes('url.searchParams.set("mode", activeAppMode)'), "Visible URL should keep the current mode deep link.");
 expect(app.includes('url.searchParams.delete("token")'), "Visible URL synchronization should strip API tokens.");
 expect(!/searchParams\.set\("token",\s*localSessionToken\)/.test(app.slice(app.indexOf("function syncSessionUrl"), app.indexOf("function resetSessionViewState"))), "Visible URL synchronization must not re-add the API token.");
@@ -47,6 +49,8 @@ expect(app.includes("graph.privacySummary"), "Summary renderer should display ba
 expect(app.includes("graph.shareabilitySummary"), "Summary renderer should display backend shareabilitySummary facts.");
 expect(app.includes("rawLogsSafeToShare"), "Summary renderer should expose raw log shareability status.");
 expect(app.includes("apiTokenRequired"), "Summary renderer should expose only token requirement status, not token contents.");
+expect(app.includes('triage.className = "summary-triage"'), "Summary renderer should include the wave-2 triage card row.");
+expect(app.includes('modeButton("Open Timeline"') && app.includes('modeButton("Open Export"'), "Summary triage cards should route to primary inspection and export flows.");
 expect(!app.includes("localSessionToken") || !/renderSummaryModePanel[\s\S]*localSessionToken/.test(app), "Summary renderer must not expose the local API token.");
 expect(app.includes('if (nextMode === "summary")'), "Selecting Summary should have an explicit chrome branch.");
 expect(app.includes('return activeAppMode === "map"'), "Event Context should remain Map-only after Summary is added.");
@@ -55,6 +59,8 @@ const summaryGrid = blockFor(".summary-shell-grid");
 expect(summaryGrid.length > 0, "Summary shell should have CSS grid styling.");
 expect(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/.test(summaryGrid), "Summary shell grid should be responsive.");
 expect(styles.includes(".summary-fact"), "Summary facts should have dedicated card styling.");
+expect(styles.includes(".summary-triage") && /\.summary-triage\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/m.test(styles), "Summary triage cards should wrap responsively.");
+expect(styles.includes("/* Wave 2 frontend polish"), "Wave-2 chrome polish styles should stay grouped and documented.");
 
 if (failures.length) {
   console.error("Summary mode shell check failed:");
