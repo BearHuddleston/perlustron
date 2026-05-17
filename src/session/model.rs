@@ -36,6 +36,7 @@ struct AppState {
 struct CachedSession {
     len: u64,
     modified: SystemTime,
+    line_offsets: Vec<u64>,
     subagent_signature: String,
     graph: SessionGraph,
 }

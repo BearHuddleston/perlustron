@@ -45,6 +45,8 @@ perlustron unknowns session.jsonl --redacted -o unknowns-redacted.json
 
 The scanner and sanitizer are best-effort. Review sanitized logs and reports manually before sharing.
 
+The UI's `Copy Share Summary` and `Copy Safe Reference` actions copy structural context and redaction-aware summaries instead of raw prompt text, tool output, private paths, embedded image payloads, or token values. They are safer references for collaboration, but they are not a guarantee that the underlying raw logs or exported reports are safe to forward; keep the human review step.
+
 ## Known Limitations
 
 - Secret scanning cannot guarantee detection of every token or proprietary value.
