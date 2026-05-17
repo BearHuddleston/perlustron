@@ -1,0 +1,6 @@
+{"timestamp":"2026-05-11T10:00:00Z","type":"session_meta","payload":{"id":"codex-approval-denied-fixture","cwd":"C:\\Fixtures\\perlustron-approval","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex","model_provider":"openai"}}
+{"timestamp":"2026-05-11T10:00:01Z","type":"turn_context","payload":{"approval_policy":"on-request","sandbox_policy":{"type":"workspace-write"},"model":"gpt-fixture"}}
+{"timestamp":"2026-05-11T10:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Try a write that requires approval."}]}}
+{"timestamp":"2026-05-11T10:00:03Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"approval_call_1","arguments":{"command":"Remove-Item protected.txt"}}}
+{"timestamp":"2026-05-11T10:00:04Z","type":"response_item","payload":{"type":"function_call_output","call_id":"approval_call_1","output":"approval denied by policy; sandbox blocked file deletion"}}
+{"timestamp":"2026-05-11T10:00:05Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The logged command was denied by policy."}]}}

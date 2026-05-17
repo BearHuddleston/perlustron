@@ -1,0 +1,5 @@
+{"timestamp":"2026-05-11T10:40:00Z","type":"session_meta","payload":{"id":"codex-context-compaction-fixture","cwd":"C:\\Fixtures\\perlustron-context","cli_version":"0.0.0-fixture","originator":"codex-test","source":"codex","model_provider":"openai"}}
+{"timestamp":"2026-05-11T10:40:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Create high context pressure and compaction markers."}]}}
+{"timestamp":"2026-05-11T10:40:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":93000,"output_tokens":4000,"total_tokens":97000},"model_context_window":100000},"rate_limits":{"primary":{"used_percent":75},"secondary":{"used_percent":30}}}}
+{"timestamp":"2026-05-11T10:40:03Z","type":"summary","payload":{"summary":"Synthetic context was compacted after high token pressure.","reason":"context pressure"}}
+{"timestamp":"2026-05-11T10:40:04Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The log contains high context and compaction markers."}]}}

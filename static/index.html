@@ -1,0 +1,269 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Perlustron</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css?v=68" />
+  </head>
+  <body>
+    <main id="app">
+      <header id="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <strong>Perlustron</strong>
+          <span class="version">v0.2.0</span>
+          <span class="local-pill"><span></span>LOCAL</span>
+        </div>
+        <label class="search-box">
+          <span aria-hidden="true"></span>
+          <input id="search-input" type="search" value="" placeholder="Search metadata (sessions, turns, files, errors...)" aria-label="Search metadata" autocomplete="off" />
+          <kbd>Ctrl K</kbd>
+        </label>
+        <div class="top-actions">
+          <div id="source-switch" class="source-switch" aria-label="Session source">
+            <button class="active" type="button" data-source="codex">Codex</button>
+            <button type="button" data-source="claude">Claude</button>
+          </div>
+          <label class="session-picker">
+            <span>Session</span>
+            <select id="session-select" aria-label="Select session">
+              <option value="">Loading sessions</option>
+            </select>
+            <small id="session-select-status">Loading</small>
+          </label>
+          <button id="live-toggle" class="live-select" type="button"><span></span><b id="live-state">LIVE</b> <small id="live-copy">Tailing session...</small></button>
+          <button id="settings-button" class="settings" type="button">Settings</button>
+        </div>
+      </header>
+
+      <nav id="mode-nav" class="mode-nav" aria-label="Default Perlustron modes">
+        <button type="button" data-app-mode="summary">Summary</button>
+        <button class="active" type="button" data-app-mode="map">Map</button>
+        <button type="button" data-app-mode="timeline">Timeline</button>
+        <button type="button" data-app-mode="transcript">Transcript</button>
+        <label class="utility-mode-picker">
+          <span>Utilities</span>
+          <select id="utility-mode-select" class="mode-select" aria-label="Open utility view">
+            <option value="">Open</option>
+            <option value="health">Health</option>
+            <option value="insights">Insights</option>
+            <option value="diff">Diff</option>
+            <option value="raw">Raw</option>
+            <option value="export">Export</option>
+          </select>
+        </label>
+      </nav>
+
+      <div id="workspace">
+        <aside id="inspector-dock" class="inspector-open" aria-label="Inspector">
+          <nav id="inspector-tabs" class="inspector-tabs" aria-label="Inspector categories">
+            <button class="active" type="button" data-inspector-tab="sessions" aria-label="Sessions" title="Sessions" aria-expanded="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+              <span>Sessions</span>
+            </button>
+            <button type="button" data-inspector-tab="saved" aria-label="Saved Views" title="Saved views" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>Saved</span>
+            </button>
+            <button type="button" data-inspector-tab="raw" aria-label="Raw JSON" title="Raw JSON" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M16 3l4 4-4 4"/><path d="M8 21l8-18"/></svg>
+              <span>Raw JSON</span>
+            </button>
+            <button type="button" data-inspector-tab="health" aria-label="Parser Health" title="Parser health" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-4"/><path d="M12 16V8"/><path d="M16 16v-6"/></svg>
+              <span>Health</span>
+            </button>
+          </nav>
+
+          <aside id="stream-panel" aria-live="polite">
+            <section class="inspector-section active" data-inspector-panel="sessions">
+              <section class="rail-section sessions">
+                <header class="sidebar-header">
+                  <div>
+                    <span>Session Browser</span>
+                    <strong id="sidebar-session-name">Loading session</strong>
+                  </div>
+                  <button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">&lt;</button>
+                </header>
+                <div class="sidebar-status">
+                  <div>
+                    <span>Source</span>
+                    <strong id="sidebar-source">Codex</strong>
+                  </div>
+                  <div>
+                    <span>Turns</span>
+                    <strong id="sidebar-turns">0</strong>
+                  </div>
+                  <div>
+                    <span>Records</span>
+                    <strong id="sidebar-records">0</strong>
+                  </div>
+                  <div>
+                    <span>Status</span>
+                    <strong id="sidebar-live-status">Loading</strong>
+                  </div>
+                </div>
+                <div class="sidebar-path">
+                  <span>Session file</span>
+                  <strong id="sidebar-session-path">Waiting for JSONL</strong>
+                </div>
+                <section class="session-roots" aria-label="Session roots">
+                  <header>
+                    <span>Roots</span>
+                  </header>
+                  <div id="root-list"></div>
+                </section>
+                <section class="session-roots" aria-label="Session metadata">
+                  <header>
+                    <span>Metadata</span>
+                  </header>
+                  <div id="metadata-list"></div>
+                </section>
+                <div class="segmented">
+                  <button type="button" data-session-filter="all">All <span id="all-count">0</span></button>
+                  <button class="active" type="button" data-session-filter="live">Live <span id="live-count">0</span></button>
+                  <button type="button" data-session-filter="pinned">Pinned <span id="pinned-count">0</span></button>
+                </div>
+                <div id="prompt-list"></div>
+              </section>
+            </section>
+
+            <section class="inspector-section" data-inspector-panel="saved">
+              <section class="rail-section saved">
+                <header>Saved Views <span id="saved-view-count">3</span></header>
+                <button type="button" data-saved-view="errors"><strong>Reliability review</strong><small id="saved-errors-summary">0 errors, 0 long calls</small></button>
+                <button type="button" data-saved-view="files"><strong>File activity</strong><small id="saved-files-summary">0 file operations</small></button>
+                <button type="button" data-saved-view="latest"><strong>Latest prompt</strong><small id="saved-latest-summary">Waiting for session data</small></button>
+              </section>
+            </section>
+
+            <section class="inspector-section" data-inspector-panel="raw">
+              <div class="raw-json">
+                <header>Raw Payload <label><input id="raw-json-toggle" type="checkbox" aria-label="Toggle raw JSON preview" /> </label></header>
+                <pre id="raw-json-preview">{}</pre>
+                <footer><span id="raw-json-size">0 KB</span><button id="open-editor-button" type="button">Copy JSON</button></footer>
+              </div>
+            </section>
+
+            <section class="inspector-section" data-inspector-panel="health">
+              <section class="rail-section parser-health">
+                <header>Parser Health <span id="parser-health-status">Waiting</span></header>
+                <div id="parser-health-summary" class="health-summary"></div>
+              </section>
+            </section>
+          </aside>
+        </aside>
+
+        <section id="stage">
+          <div class="stage-header">
+            <div>
+              <h1 id="session-title">Loading session</h1>
+              <p id="session-meta" class="muted">Waiting for JSONL</p>
+            </div>
+            <div class="stage-metrics">
+              <strong id="stage-turn-count">0 turns</strong>
+              <span id="stage-started">Started just now</span>
+              <div class="context-pressure" title="Context pressure">
+                <span>Context</span>
+                <strong id="context-pressure-value">n/a</strong>
+                <div id="context-pressure-bars" aria-hidden="true"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="legend" aria-label="Metric filters">
+            <span class="legend-item turn">Turn</span>
+            <button type="button" data-metric="error"><span class="metric-dot error"></span>Errors <b id="metric-errors">0</b></button>
+            <button type="button" data-metric="long"><span class="metric-dot long"></span>Long calls <b id="metric-long">0</b></button>
+            <button type="button" data-metric="file"><span class="metric-dot file"></span>Files <b id="metric-files">0</b></button>
+            <button type="button" data-metric="diff"><span class="metric-dot diff"></span>Diffs <b id="metric-diffs">0</b></button>
+            <button type="button" data-metric="artifact"><span class="metric-dot artifact"></span>Artifacts <b id="metric-artifacts">0</b></button>
+            <button type="button" data-metric="compaction"><span class="metric-dot compaction"></span>Compactions <b id="metric-compactions">0</b></button>
+          </div>
+
+          <div id="scene-frame">
+            <canvas id="space" aria-label="Perlustron session workflow"></canvas>
+            <section id="mode-panel" class="mode-panel hidden" aria-label="Selected Perlustron mode">
+              <header>
+                <div>
+                  <span id="mode-panel-kicker">Mode</span>
+                  <h2 id="mode-panel-title">Timeline</h2>
+                </div>
+                <small id="mode-panel-summary">Waiting for session data</small>
+              </header>
+              <div id="mode-panel-filters" class="mode-filters">
+                <label>
+                  <span>Role</span>
+                  <select id="mode-filter-role" aria-label="Filter timeline by role"></select>
+                </label>
+                <label>
+                  <span>Type</span>
+                  <select id="mode-filter-type" aria-label="Filter timeline by event type"></select>
+                </label>
+                <label>
+                  <span>Tool</span>
+                  <select id="mode-filter-tool" aria-label="Filter timeline by tool"></select>
+                </label>
+                <label>
+                  <span>File</span>
+                  <select id="mode-filter-file" aria-label="Filter timeline by file"></select>
+                </label>
+                <label><input id="mode-filter-errors" type="checkbox" /> Errors</label>
+                <label><input id="mode-filter-unknown" type="checkbox" /> Unknown</label>
+                <label><input id="mode-filter-malformed" type="checkbox" /> Malformed</label>
+                <label><input id="mode-filter-redacted" type="checkbox" /> Redacted</label>
+                <label><input id="mode-filter-utc" type="checkbox" /> UTC</label>
+              </div>
+              <div id="mode-panel-content" class="mode-panel-content"></div>
+            </section>
+            <div id="event-popup" class="event-popup hidden" role="dialog" aria-label="Event context">
+              <div class="panel-heading">
+                <div>
+                  <span>Event Context</span>
+                  <strong id="context-event-title">Latest context</strong>
+                </div>
+                <div class="inspector-actions">
+                  <button id="prev-event" type="button" title="Previous">&lt;</button>
+                  <button id="next-event" type="button" title="Next">&gt;</button>
+                  <button id="stream-minimize" type="button" title="Minimize context" aria-label="Collapse context">_</button>
+                  <button id="stream-close" type="button" title="Clear selection">X</button>
+                </div>
+              </div>
+              <div class="context-meta">
+                <div>
+                  <span>Kind</span>
+                  <strong id="stream-kind">TURN</strong>
+                </div>
+                <div>
+                  <span>Position</span>
+                  <strong id="turn-number">Latest context</strong>
+                </div>
+                <div>
+                  <span>Time</span>
+                  <strong id="turn-timestamp">Live context</strong>
+                </div>
+              </div>
+              <div class="inspector-summary">
+                <h2 id="stream-title">Select a turn</h2>
+                <div id="stream-images" class="stream-images"></div>
+                <pre id="stream-data">Click an object to inspect its live JSONL record.</pre>
+              </div>
+            </div>
+            <div class="viewport-controls" aria-hidden="true">
+              <button type="button" data-view-action="zoom-in">+</button>
+              <button type="button" data-view-action="zoom-out">-</button>
+              <button type="button" data-view-action="two-d">2D</button>
+            </div>
+            <button id="inspect-exit" class="inspect-exit" type="button" data-view-action="overview" title="Exit inspection">Exit inspection</button>
+            <div class="live-chip"><span></span>LIVE</div>
+          </div>
+        </section>
+      </div>
+
+    </main>
+    <script type="module" src="/app-v130.js"></script>
+  </body>
+</html>
