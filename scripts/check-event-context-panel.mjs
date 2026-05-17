@@ -21,6 +21,8 @@ expect(
 expect(app.includes('queryRequired<HTMLButtonElement>("#stream-minimize")'), "Frontend should query the context minimize button.");
 expect(app.includes('queryRequired<HTMLButtonElement>("#stream-copy-ref")'), "Frontend should query the evidence reference copy button.");
 expect(html.includes('class="event-context-actions"'), "Event context should expose compact evidence action buttons.");
+expect(!html.includes('data-inspector-tab="raw"'), "Inspector rail should not expose the removed Raw JSON tab.");
+expect(!html.includes('id="raw-json-preview"'), "Inspector rail should not carry the removed Raw JSON preview.");
 expect(app.includes("setEventContextCollapsed"), "Frontend should synchronize compact/expanded context state.");
 expect(app.includes('streamMinimize.addEventListener("click"'), "Frontend should wire the context minimize button.");
 expect(app.includes('streamCopyRef.addEventListener("click", copySelectedEventRef)'), "Copy Ref should use the safe evidence-reference helper.");

@@ -25,7 +25,7 @@ type Mode = "overview" | "inspect";
 type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export" | "settings";
 type SessionFilter = "all" | "live" | "pinned";
 type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction";
-type InspectorPanel = "sessions" | "saved" | "raw" | "health";
+type InspectorPanel = "sessions" | "saved" | "health";
 type SavedView = "errors" | "files" | "latest";
 type ViewAction = "zoom-in" | "zoom-out" | "two-d" | "overview";
 type SceneBucket = "prompt" | "call" | "fileChange" | "message" | "compaction";
@@ -44,7 +44,7 @@ type DefaultAppMode = (typeof DEFAULT_APP_MODES)[number];
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
 const SESSION_FILTERS = ["all", "live", "pinned"] as const satisfies readonly SessionFilter[];
 const METRICS = ["error", "long", "file", "diff", "artifact", "compaction"] as const satisfies readonly Metric[];
-const INSPECTOR_PANELS = ["sessions", "saved", "raw", "health"] as const satisfies readonly InspectorPanel[];
+const INSPECTOR_PANELS = ["sessions", "saved", "health"] as const satisfies readonly InspectorPanel[];
 const SAVED_VIEWS = ["errors", "files", "latest"] as const satisfies readonly SavedView[];
 const VIEW_ACTIONS = ["zoom-in", "zoom-out", "two-d", "overview"] as const satisfies readonly ViewAction[];
 const APP_MODE_SET = new Set<AppMode>(APP_MODES);
@@ -841,8 +841,6 @@ const liveCount = queryRequired<HTMLElement>("#live-count");
 const pinnedCount = queryRequired<HTMLElement>("#pinned-count");
 const turnNumber = queryRequired<HTMLElement>("#turn-number");
 const turnTimestamp = queryRequired<HTMLElement>("#turn-timestamp");
-const rawJsonPreview = queryRequired<HTMLElement>("#raw-json-preview");
-const rawJsonSize = queryRequired<HTMLElement>("#raw-json-size");
 const parserHealthStatus = queryRequired<HTMLElement>("#parser-health-status");
 const parserHealthSummary = queryRequired<HTMLElement>("#parser-health-summary");
 const metricErrors = queryRequired<HTMLElement>("#metric-errors");
@@ -869,9 +867,7 @@ const topbar = queryRequired<HTMLElement>("#topbar");
 const liveToggle = queryRequired<HTMLButtonElement>("#live-toggle");
 const liveState = queryRequired<HTMLElement>("#live-state");
 const liveCopy = queryRequired<HTMLElement>("#live-copy");
-const rawJsonToggle = queryRequired<HTMLInputElement>("#raw-json-toggle");
 const searchInput = queryRequired<HTMLInputElement>("#search-input");
-const rawJsonPanel = queryRequired<HTMLElement>(".raw-json");
 const modePanel = queryRequired<HTMLElement>("#mode-panel");
 const modePanelKicker = queryRequired<HTMLElement>("#mode-panel-kicker");
 const modePanelTitle = queryRequired<HTMLElement>("#mode-panel-title");
@@ -901,7 +897,6 @@ const sessionSelect = queryRequired<HTMLSelectElement>("#session-select");
 const sessionSelectStatus = queryRequired<HTMLElement>("#session-select-status");
 const settingsButton = queryRequired<HTMLButtonElement>("#settings-button");
 const sidebarToggle = queryRequired<HTMLButtonElement>("#sidebar-toggle");
-const openEditorButton = queryRequired<HTMLButtonElement>("#open-editor-button");
 const sceneFrame = queryRequired<HTMLElement>("#scene-frame");
 const STATUS_FALLBACK_POLL_INTERVAL_MS = 3500;
 const LIVE_UPDATE_RETRY_MS = 1000;
@@ -1061,7 +1056,7 @@ let unknownsReportPromise: Promise<UnknownsReport | null> | null = null;
 let activeSessionFilter: SessionFilter = "live";
 let activeMetric: Metric | null = null;
 let searchTerm = "";
-let rawExpanded = true;
+let rawPayload: unknown = null;
 let isTailing = true;
 let liveEventsConnected = false;
 let sessionSwitchInProgress = false;
@@ -1219,6 +1214,7 @@ scene.add(grid);
 
 streamClose.addEventListener("click", () => {
   selectedNodeId = null;
+  clearRawModePayload();
   hideEventPopup();
   syncInstanceColors();
   syncEventContextActions();
@@ -1500,6 +1496,7 @@ function resetSessionViewState(): void {
   latestAppliedGraphRequestId = 0;
   selectedNodeId = null;
   activePromptId = null;
+  rawPayload = null;
   mode = "overview";
   previousLatestEventIndex = null;
   lastStatusGraphChanged = false;
@@ -4610,10 +4607,18 @@ function pickNode(): SceneNode | null {
   return null;
 }
 
-function setRawJsonPayload(payload: unknown): void {
-  const text = JSON.stringify(payload ?? {}, null, 2);
-  rawJsonPreview.textContent = text;
-  rawJsonSize.textContent = `${Math.max(1, Math.round(text.length / 1024))} KB`;
+function setRawModePayload(payload: unknown): void {
+  rawPayload = payload ?? {};
+  if (activeAppMode === "raw" && graph) {
+    renderRawModePanel();
+  }
+}
+
+function clearRawModePayload(): void {
+  rawPayload = null;
+  if (activeAppMode === "raw" && graph) {
+    renderRawModePanel();
+  }
 }
 
 function openStream(
@@ -4642,7 +4647,7 @@ function openStream(
   turnTimestamp.textContent = timestampForNode(node);
   contextEventTitle.textContent = node.title;
   streamTitle.textContent = node.title;
-  setRawJsonPayload(node.source);
+  setRawModePayload(node.source);
   syncEventContextActions();
   renderStreamImages(imagesForNode(node));
   const payload = node.detail || node.body || node.title;
@@ -4918,11 +4923,12 @@ function resetInspector(): void {
   streamTitle.textContent = latestPrompt?.title || current?.ui.sessionName || "Session overview";
   streamData.textContent = sessionOverviewText();
   renderStreamImages();
-  setRawJsonPayload(graph?.totals);
 }
 
 function refreshInspectorTotals(): void {
-  setRawJsonPayload(graph?.totals);
+  if (activeAppMode === "raw" && !rawPayload) {
+    renderRawModePanel();
+  }
 }
 
 function showEventPopup(): void {
@@ -5063,10 +5069,10 @@ function openSelectedEventMode(nextMode: AppMode): void {
   const selectedId = selected.node.id;
   const selectedPromptId = selected.node.promptId;
   const selectedPayload = selected.row?.source ?? selected.node.source;
+  setRawModePayload(selectedPayload);
   selectAppMode(nextMode);
   selectedNodeId = selectedId;
   activePromptId = selectedPromptId;
-  setRawJsonPayload(selectedPayload);
   syncInstanceColors();
   if (nextMode !== "map") {
     renderActiveModePanel();
@@ -5406,7 +5412,7 @@ function evidenceRowForInsight(item: InspectionQueueItem): ModeEventRow | null {
 
 function openInsightDetails(item: InspectionQueueItem): void {
   selectAppMode("insights");
-  setRawJsonPayload(item);
+  setRawModePayload(item);
   modePanelSummary.textContent = `Queued insight selected - ${item.title}`;
   const notice = modeEmpty("Selected insight loaded in Raw for audit; use evidence actions to jump into Timeline, Transcript, or Raw rows when line/event data is available.");
   notice.classList.add("mode-notice");
@@ -5644,7 +5650,7 @@ function inspectModeRow(row: ModeEventRow): void {
   } else {
     openSyntheticStream(row.eventType.toUpperCase(), row.title, row.detail || row.title);
   }
-  setRawJsonPayload(row.source);
+  setRawModePayload(row.source);
 }
 
 function renderTranscriptModePanel(): void {
@@ -5953,7 +5959,7 @@ function renderDiffModePanel(): void {
 function renderRawModePanel(): void {
   const current = currentGraph();
   modePanelSummary.textContent = selectedNodeId ? "Selected event" : "Session graph";
-  const payload = selectedNodeId ? nodeById.get(selectedNodeId)?.source : current;
+  const payload = rawPayload ?? (selectedNodeId ? nodeById.get(selectedNodeId)?.source : current);
   const pre = document.createElement("pre");
   pre.textContent = JSON.stringify(payload ?? current.totals, null, 2);
   modePanelContent.replaceChildren(pre);
@@ -5992,7 +5998,6 @@ function renderSettingsModePanel(): void {
     modeCard("Renderer", [
       "Three.js instancing",
       `Mode panel: ${activeAppMode === "settings" ? "visible" : "hidden"}`,
-      `Raw JSON: ${rawExpanded ? "visible" : "collapsed"}`,
     ]),
     modeCard("Backend", [
       "Rust Axum JSONL parser",
@@ -6258,7 +6263,7 @@ async function ensureUnknownsReportLoaded(force = false): Promise<UnknownsReport
 
 function showEvidenceFallback(title: string, payload: unknown, detail: string): void {
   const message = `${detail} Insights remains available and Raw is updated with the selected evidence payload.`;
-  setRawJsonPayload(payload);
+  setRawModePayload(payload);
   modePanelSummary.textContent = "Evidence fallback";
   const card = modeCard("Evidence Fallback", [message]);
   card.classList.add("mode-notice");
@@ -6267,7 +6272,7 @@ function showEvidenceFallback(title: string, payload: unknown, detail: string): 
   actions.append(
     modeButton("Open Insights", () => {
       selectAppMode("insights");
-      setRawJsonPayload(payload);
+      setRawModePayload(payload);
     }),
     modeButton("Audit Raw", () => {
       selectAppMode("raw");
@@ -6293,7 +6298,7 @@ function focusEventByLine(lineNumber: number | null | undefined, title: string, 
         openSelectedEventMode(destination);
       } else if (destination !== "map") {
         selectAppMode(destination);
-        setRawJsonPayload(row.source);
+        setRawModePayload(row.source);
       }
       return;
     }
@@ -6501,9 +6506,6 @@ function selectAppMode(nextMode: AppMode): void {
     return;
   }
   if (nextMode === "raw") {
-    setInspectorPanel("raw");
-    setInspectorCollapsed(false);
-    openSyntheticStream("RAW", "Raw and normalized event inspection", rawModeText());
     return;
   }
   if (nextMode === "diff") {
@@ -6596,10 +6598,6 @@ function insightsModeText(): string {
   );
   lines.push(`Approval/sandbox friction: ${insights.approvalFriction.length}`);
   return lines.join("\n");
-}
-
-function rawModeText(): string {
-  return "Select any event to inspect its parsed payload. Use the Raw JSON inspector to copy the selected raw or normalized event.";
 }
 
 function diffModeText(): string {
@@ -6752,8 +6750,6 @@ function setupControls() {
 
   sidebarToggle.addEventListener("click", () => setInspectorCollapsed(!inspectorCollapsed));
 
-  rawJsonToggle.addEventListener("change", () => setRawExpanded(rawJsonToggle.checked));
-  setRawExpanded(true);
   setInspectorPanel("sessions", { force: true });
 
   searchInput.addEventListener("input", () => {
@@ -6859,13 +6855,6 @@ function setupControls() {
     selectAppMode("settings");
   });
 
-  openEditorButton.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(rawJsonPreview.textContent);
-    } catch (error) {
-      logTransientError(error);
-    }
-  });
 }
 
 function handleGlobalKeydown(event: KeyboardEvent): void {
@@ -7167,12 +7156,6 @@ function scheduleViewportRefresh({ overview = false }: { overview?: boolean } = 
   });
 }
 
-function setRawExpanded(expanded: boolean): void {
-  rawExpanded = expanded;
-  rawJsonToggle.checked = expanded;
-  rawJsonPanel.classList.toggle("collapsed", !expanded);
-}
-
 function zoomCamera(units: number): void {
   if (Math.abs(units) < 0.001) {
     return;
@@ -7318,6 +7301,7 @@ function syncSelectedSource({ restartStream = false }: { restartStream?: boolean
 
 function openSyntheticStream(kind: string, title: string, body: string): void {
   selectedNodeId = null;
+  clearRawModePayload();
   showEventPopup();
   syncInstanceColors();
   streamKind.textContent = kind;
@@ -7325,7 +7309,6 @@ function openSyntheticStream(kind: string, title: string, body: string): void {
   turnTimestamp.textContent = new Date().toLocaleTimeString();
   contextEventTitle.textContent = title;
   streamTitle.textContent = title;
-  setRawJsonPayload({ kind, title, body, generatedAt: new Date().toISOString() });
   syncEventContextActions();
   renderStreamImages();
   typeStream(body);
