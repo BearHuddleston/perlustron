@@ -1,12 +1,12 @@
 # Release
 
-Perlustron releases should be boring to install, usable offline, and honest about signing status. For the v0.2.0 release, use the focused checklist in [v0.2.0 release checklist](release-checklist-v0.2.0.md) before tagging.
+Perlustron releases should be boring to install, usable offline, and honest about signing status. For the latest v0.3.0 release, use the focused checklist in [v0.3.0 release checklist](release-checklist-v0.3.0.md) before tagging. The v0.2.0 checklist remains available for historical reference.
 
 ## Release Safety Gates
 
 Release docs may include tag, download, and repository-description commands for operator convenience. Treat them as future/manual commands only: do not push tags, edit or publish GitHub Releases, force-update existing tags, publish package channels, or mutate GitHub About text unless a human release owner explicitly approves the exact action.
 
-Before applying the v0.2.0 notes to a public release, confirm the selected tag actually contains the documented content. If `v0.2.0` already exists, stop and get a human decision for a new version, release addendum, or retag policy before changing anything irreversible.
+Before applying the v0.3.0 notes to a public release, confirm the selected tag actually contains the documented content. If `v0.3.0` already exists, stop and get a human decision for a new version, release addendum, or retag policy before changing anything irreversible.
 
 ## Build Locally
 
@@ -17,7 +17,7 @@ cargo build --release
 target\release\perlustron.exe --demo
 ```
 
-The Rust binary embeds the static UI and demo fixtures. Keep `static/app.js`, `static/styles.css`, `static/index.html`, and `docs/assets/perlustron-demo.png` in sync before tagging. The v0.2.0 candidate docs cover the landed Diff/Insights work plus Wave 3 Summary-first evidence routing, copy-safe share/reference copy, larger-session image-evidence indexing, and the refreshed sanitized Summary-first screenshot.
+The Rust binary embeds the static UI and demo fixtures. Keep `static/app.js`, `static/styles.css`, `static/index.html`, and `docs/assets/perlustron-demo.png` in sync before tagging. The v0.3.0 candidate docs cover the Wave 3 Summary-first evidence routing, copy-safe share/reference copy, larger-session image-evidence indexing, and the refreshed sanitized Summary-first screenshot.
 
 ## Download Latest Release
 
@@ -43,11 +43,11 @@ Get-Content .\perlustron-windows-x86_64.zip.sha256
 
 ## Tag Release
 
-Run the tag push only after the release-prep commit is reviewed, approved, and on `main`, and only after confirming the tag does not already exist. If `v0.2.0` already exists, do not delete, force-update, or re-push it without explicit human approval:
+Run the tag push only after the release-prep commit is reviewed, approved, and on `main`, and only after confirming the tag does not already exist. If `v0.3.0` already exists, do not delete, force-update, or re-push it without explicit human approval:
 
 ```bash
-git tag -a v0.2.0 -m "v0.2.0 - Interactive Session Compare and Guided Debugging"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "v0.3.0 - Summary Evidence, Copy-Safe Sharing, and Large-Session Polish"
+git push origin v0.3.0
 ```
 
 The release workflow builds platform archives for Windows, Linux, macOS x86_64, and macOS arm64 where GitHub runners support them.

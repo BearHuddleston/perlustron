@@ -2,7 +2,7 @@
 
 [package]
 name = "perlustron"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Local-first agent-forensics workbench for Codex and Claude Code JSONL session logs"
