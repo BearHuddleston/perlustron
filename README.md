@@ -25,9 +25,9 @@ perlustron unknowns path/to/session.jsonl --redacted -o unknowns-redacted.json
 perlustron fixture-report path/to/session.jsonl --redacted -o fixture-report.md
 ```
 
-![Perlustron sanitized demo screenshot](docs/assets/perlustron-demo.png)
+![Perlustron Summary-first sanitized demo screenshot](docs/assets/perlustron-demo.png)
 
-The screenshot above was generated from the bundled sanitized Codex demo with privacy mode enabled. Do not use private logs for screenshots or marketing assets.
+The screenshot above was generated from the bundled sanitized Codex demo in privacy mode on the Summary-first workflow, including inspect-first evidence actions and raw-log shareability cues. Do not use private logs for screenshots or marketing assets.
 
 ## Install
 
