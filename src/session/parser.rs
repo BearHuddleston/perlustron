@@ -427,7 +427,7 @@ fn build_session_graph(input: SessionGraphInput<'_>) -> SessionGraph {
         byte_length,
         processed_byte_length,
         pending_bytes,
-        privacy_summary: PrivacySummary::for_server_profile(None),
+        privacy_summary: PrivacySummary::for_server_profile(None, false),
         shareability_summary: ShareabilitySummary::for_server_profile(None),
         totals,
         parser_health,

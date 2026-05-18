@@ -24,7 +24,7 @@ Exports use `AgentTrace` (`agent-trace-v1`) as a stable downstream shape. It inc
 
 ## Server/API
 
-The Axum server binds to loopback by default. Static UI assets are embedded into the binary. API routes require a per-run token and never serve arbitrary filesystem paths. Embedded images are decoded from the selected session JSONL only.
+The Axum server binds to loopback by default. Static UI assets are embedded into the binary. API routes are tokenless by default, can require a per-run token with `--require-api-token`, and never serve arbitrary filesystem paths. Embedded images are decoded from the selected session JSONL only.
 
 ## Frontend
 

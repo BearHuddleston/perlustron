@@ -27,7 +27,7 @@ struct AppState {
     default_source: SessionSource,
     explicit_paths: Arc<HashMap<SessionSource, PathBuf>>,
     cache: Arc<Mutex<HashMap<String, CachedSession>>>,
-    api_token: String,
+    api_token: Option<String>,
     privacy_profile: Option<RedactionProfile>,
     dev_assets: bool,
 }
@@ -56,6 +56,7 @@ struct ServerOptions {
     port: u16,
     open_browser: Option<bool>,
     privacy_mode: bool,
+    require_api_token: bool,
     dev_assets: bool,
 }
 
@@ -375,17 +376,19 @@ struct ShareabilitySummary {
 }
 
 impl PrivacySummary {
-    fn for_server_profile(profile: Option<RedactionProfile>) -> Self {
+    fn for_server_profile(profile: Option<RedactionProfile>, api_token_required: bool) -> Self {
         Self {
             privacy_mode: profile
                 .map(|profile| profile.as_str().to_owned())
                 .unwrap_or_else(|| "off".to_owned()),
             redaction_profile: profile.map(|profile| profile.as_str().to_owned()),
-            api_token_required: true,
+            api_token_required,
             image_route_behavior: if profile.is_some() {
                 "disabled-in-privacy-mode".to_owned()
-            } else {
+            } else if api_token_required {
                 "available-to-authorized-local-session".to_owned()
+            } else {
+                "available-to-local-session".to_owned()
             },
             no_telemetry: true,
             no_third_party_uploads: true,

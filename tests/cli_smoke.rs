@@ -253,7 +253,7 @@ fn cli_reports_exports_diff_insights_unknowns_and_bench_work() {
 }
 
 #[test]
-fn demo_server_serves_local_assets_and_requires_api_token() {
+fn demo_server_serves_local_assets_without_api_token_by_default() {
     let temp = TempDirGuard::new("server");
     let listener = TcpListener::bind("127.0.0.1:0").expect("reserve local port");
     let port = listener.local_addr().expect("local address").port();
@@ -282,12 +282,10 @@ fn demo_server_serves_local_assets_and_requires_api_token() {
     let line = receiver
         .recv_timeout(Duration::from_secs(10))
         .expect("demo server should print startup URL");
-    let token = line
-        .split("?token=")
-        .nth(1)
-        .expect("startup URL includes token")
-        .trim()
-        .to_owned();
+    assert!(
+        !line.contains("?token="),
+        "startup URL should not include a token by default: {line}"
+    );
 
     let index = http_get(port, "/");
     assert!(index.starts_with("HTTP/1.1 200 OK"), "{index}");
@@ -298,26 +296,20 @@ fn demo_server_serves_local_assets_and_requires_api_token() {
     assert!(app_js.starts_with("HTTP/1.1 200 OK"), "{app_js}");
     assert_no_remote_runtime_requests(&app_js);
 
-    let unauthorized = http_get(port, "/api/session");
-    assert!(
-        unauthorized.starts_with("HTTP/1.1 401 Unauthorized"),
-        "{unauthorized}"
-    );
-    assert!(unauthorized.contains("missing or invalid local session token"));
-
-    let authorized = http_get(port, &format!("/api/session?token={token}"));
-    assert!(authorized.starts_with("HTTP/1.1 200 OK"), "{authorized}");
-    assert!(authorized.contains("\"parserHealth\""));
-    let session_path = response_json(&authorized)
+    let session = http_get(port, "/api/session");
+    assert!(session.starts_with("HTTP/1.1 200 OK"), "{session}");
+    assert!(session.contains("\"parserHealth\""));
+    assert!(session.contains("\"apiTokenRequired\":false"));
+    let session_path = response_json(&session)
         .get("sessionPath")
         .and_then(|value| value.as_str())
-        .expect("authorized session has path")
+        .expect("session has path")
         .to_owned();
 
     let diff = http_get(
         port,
         &format!(
-            "/api/session/diff?token={token}&rightSession={}",
+            "/api/session/diff?rightSession={}",
             encode_query_component(&session_path)
         ),
     );
@@ -325,7 +317,7 @@ fn demo_server_serves_local_assets_and_requires_api_token() {
     assert!(diff.contains("\"schemaVersion\""));
     assert!(diff.contains("\"divergence\""));
 
-    let unknowns = http_get(port, &format!("/api/session/unknowns?token={token}"));
+    let unknowns = http_get(port, "/api/session/unknowns");
     assert!(unknowns.starts_with("HTTP/1.1 200 OK"), "{unknowns}");
     assert!(unknowns.contains("\"suggestedGithubIssue\""));
 
@@ -334,7 +326,7 @@ fn demo_server_serves_local_assets_and_requires_api_token() {
     let outside = http_get(
         port,
         &format!(
-            "/api/session?token={token}&session={}",
+            "/api/session?session={}",
             encode_query_component(&outside_session.display().to_string())
         ),
     );
@@ -345,6 +337,62 @@ fn demo_server_serves_local_assets_and_requires_api_token() {
             || outside.contains("selected session is not a JSONL file"),
         "{outside}"
     );
+
+    guard.kill();
+}
+
+#[test]
+fn demo_server_can_require_api_token() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("reserve local port");
+    let port = listener.local_addr().expect("local address").port();
+    drop(listener);
+
+    let mut child = Command::new(perlustron_bin())
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args([
+            "--demo",
+            "--no-open",
+            "--require-api-token",
+            "--port",
+            &port.to_string(),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn token-gated demo server");
+    let stdout = child.stdout.take().expect("server stdout");
+    let mut guard = ChildGuard(&mut child);
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            if line.contains("Serving Perlustron at ") {
+                let _ = sender.send(line);
+                return;
+            }
+        }
+    });
+
+    let line = receiver
+        .recv_timeout(Duration::from_secs(10))
+        .expect("demo server should print startup URL");
+    let token = line
+        .split("?token=")
+        .nth(1)
+        .expect("startup URL includes token when opt-in auth is enabled")
+        .trim()
+        .to_owned();
+
+    let unauthorized = http_get(port, "/api/session");
+    assert!(
+        unauthorized.starts_with("HTTP/1.1 401 Unauthorized"),
+        "{unauthorized}"
+    );
+    assert!(unauthorized.contains("missing or invalid local session token"));
+
+    let authorized = http_get(port, &format!("/api/session?token={token}"));
+    assert!(authorized.starts_with("HTTP/1.1 200 OK"), "{authorized}");
+    assert!(authorized.contains("\"apiTokenRequired\":true"));
 
     guard.kill();
 }

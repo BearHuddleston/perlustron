@@ -5,8 +5,9 @@ Perlustron is designed for local inspection of sensitive agent logs. Those logs 
 ## Local Server
 
 - The default bind address is `127.0.0.1`.
-- API routes require a random per-run local session token in the query string.
-- The browser URL printed at startup includes that token.
+- API routes are tokenless by default.
+- `--require-api-token` enables a random per-run local session token in the query string.
+- When token auth is enabled, the browser URL printed at startup includes that token.
 - Binding to another host with `--host` is an explicit opt-in and may expose session data to your network.
 - Perlustron does not add permissive CORS headers.
 

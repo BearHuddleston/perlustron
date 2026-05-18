@@ -76,7 +76,7 @@ fn app_state_with_privacy_profile(privacy_profile: Option<RedactionProfile>) -> 
         default_source: SessionSource::Codex,
         explicit_paths: Arc::new(HashMap::new()),
         cache: Arc::new(Mutex::new(HashMap::new())),
-        api_token: "token".to_owned(),
+        api_token: None,
         privacy_profile,
         dev_assets: false,
     }
@@ -290,10 +290,10 @@ fn privacy_and_shareability_summary_defaults_are_cautious_without_privacy_mode()
 
     assert_eq!(graph.privacy_summary.privacy_mode, "off");
     assert_eq!(graph.privacy_summary.redaction_profile, None);
-    assert!(graph.privacy_summary.api_token_required);
+    assert!(!graph.privacy_summary.api_token_required);
     assert_eq!(
         graph.privacy_summary.image_route_behavior,
-        "available-to-authorized-local-session"
+        "available-to-local-session"
     );
     assert!(graph.privacy_summary.no_telemetry);
     assert!(graph.privacy_summary.no_third_party_uploads);
@@ -325,7 +325,7 @@ fn shareability_summary_reflects_strict_server_privacy_mode() {
         graph.privacy_summary.redaction_profile.as_deref(),
         Some("strict")
     );
-    assert!(graph.privacy_summary.api_token_required);
+    assert!(!graph.privacy_summary.api_token_required);
     assert_eq!(
         graph.privacy_summary.image_route_behavior,
         "disabled-in-privacy-mode"
@@ -2309,6 +2309,7 @@ fn cli_parses_demo_and_export_commands() {
         CliAction::Serve(options) => {
             assert_eq!(options.demo_source, Some(SessionSource::Claude));
             assert_eq!(options.open_browser, Some(false));
+            assert!(!options.require_api_token);
             assert!(!options.dev_assets);
         }
         _ => panic!("expected serve action"),
@@ -2317,6 +2318,13 @@ fn cli_parses_demo_and_export_commands() {
     let dev_serve = parse_cli(vec!["--demo".to_owned(), "--dev-assets".to_owned()]).unwrap();
     match dev_serve {
         CliAction::Serve(options) => assert!(options.dev_assets),
+        _ => panic!("expected serve action"),
+    }
+
+    let token_serve =
+        parse_cli(vec!["--demo".to_owned(), "--require-api-token".to_owned()]).unwrap();
+    match token_serve {
+        CliAction::Serve(options) => assert!(options.require_api_token),
         _ => panic!("expected serve action"),
     }
 

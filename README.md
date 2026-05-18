@@ -2,7 +2,7 @@
 
 Perlustron is a local-first agent-forensics workbench for Codex and Claude Code JSONL session logs. It turns raw logs into an interactive map, dense timeline, transcript, parser-health view, debugging insights, session diff, and redacted reports so developers can answer: what happened, where did the run drift, what failed or looped, and what is safe to share?
 
-Perlustron does not upload prompts, source code, file paths, command output, images, or tool results. The default server binds to `127.0.0.1`, release UI assets are bundled locally, API routes require a per-run local token, and no telemetry is implemented.
+Perlustron does not upload prompts, source code, file paths, command output, images, or tool results. The default server binds to `127.0.0.1`, release UI assets are bundled locally, API routes are tokenless by default, optional per-run API token auth is available, and no telemetry is implemented.
 
 Perlustron only shows data that exists in the log. It cannot recover hidden or unlogged model reasoning, and heuristic panels are labeled as heuristics.
 
@@ -142,7 +142,7 @@ perlustron bench --generate 10000
 ## Local And Private
 
 - Default bind address: `127.0.0.1`.
-- API routes require a random per-run local session token.
+- API routes are tokenless by default; use `--require-api-token` to require a random per-run local session token.
 - No telemetry is implemented.
 - Browser assets are local in release builds.
 - Normal UI use makes no third-party browser requests.
