@@ -571,6 +571,7 @@ fn parse_serve_command(args: &[String]) -> Result<CliAction> {
         .unwrap_or(DEFAULT_PORT);
     let mut open_browser = None;
     let mut privacy_mode = false;
+    let mut require_api_token = false;
     let mut dev_assets = false;
     let mut index = 0;
 
@@ -620,6 +621,7 @@ fn parse_serve_command(args: &[String]) -> Result<CliAction> {
             "--no-open" => open_browser = Some(false),
             "--open" => open_browser = Some(true),
             "--privacy-mode" => privacy_mode = true,
+            "--require-api-token" => require_api_token = true,
             "--dev-assets" => dev_assets = true,
             arg if arg.starts_with('-') => return Err(anyhow!("unknown option `{arg}`")),
             path => {
@@ -640,6 +642,7 @@ fn parse_serve_command(args: &[String]) -> Result<CliAction> {
         port,
         open_browser,
         privacy_mode,
+        require_api_token,
         dev_assets,
     }))
 }
@@ -1057,6 +1060,7 @@ Serve options:
   --open                     Open browser after server starts
   --no-open                  Do not open browser
   --privacy-mode             Serve strict-redacted graph data and disable images
+  --require-api-token        Require a per-run token on local API routes
   --dev-assets               Debug only: serve static assets from disk without rebuilding Rust
   --help                     Show this help
   --version                  Show version and parser schema

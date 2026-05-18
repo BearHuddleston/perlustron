@@ -36,8 +36,12 @@ async fn run_server(options: ServerOptions) -> Result<()> {
         .entry(startup_session.source)
         .or_insert_with(|| startup_session.path.clone());
     let addr = SocketAddr::new(options.host, options.port);
-    let api_token = generate_api_token();
-    let url = format!("http://{addr}/?token={api_token}");
+    let api_token = options.require_api_token.then(generate_api_token);
+    let url = if let Some(token) = api_token.as_deref() {
+        format!("http://{addr}/?token={token}")
+    } else {
+        format!("http://{addr}/")
+    };
 
     let state = AppState {
         default_source: session_config.default_source,
@@ -490,12 +494,14 @@ fn authorize_api_request(state: &AppState, query: &SessionQuery) -> Option<Respo
 }
 
 fn apply_server_privacy_summary(graph: &mut SessionGraph, state: &AppState) {
-    graph.privacy_summary = PrivacySummary::for_server_profile(state.privacy_profile);
+    graph.privacy_summary =
+        PrivacySummary::for_server_profile(state.privacy_profile, state.api_token.is_some());
     graph.shareability_summary = ShareabilitySummary::for_server_profile(state.privacy_profile);
 }
 
 fn authorize_api_token(state: &AppState, token: Option<&str>) -> Option<Response> {
-    if token == Some(state.api_token.as_str()) {
+    let expected_token = state.api_token.as_deref()?;
+    if token == Some(expected_token) {
         None
     } else {
         Some(api_error_response(

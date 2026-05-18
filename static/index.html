@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=247175797353994" />
+    <link rel="stylesheet" href="/styles.css?v=269315432836461" />
   </head>
   <body>
     <main id="app">
@@ -75,16 +75,6 @@
                 <div id="context-pressure-bars" aria-hidden="true"></div>
               </div>
             </div>
-          </div>
-
-          <div class="legend" aria-label="Metric filters">
-            <span class="legend-item turn">Turn</span>
-            <button type="button" data-metric="error"><span class="metric-dot error"></span>Errors <b id="metric-errors">0</b></button>
-            <button type="button" data-metric="long"><span class="metric-dot long"></span>Long calls <b id="metric-long">0</b></button>
-            <button type="button" data-metric="file"><span class="metric-dot file"></span>Files <b id="metric-files">0</b></button>
-            <button type="button" data-metric="diff"><span class="metric-dot diff"></span>Diffs <b id="metric-diffs">0</b></button>
-            <button type="button" data-metric="artifact"><span class="metric-dot artifact"></span>Artifacts <b id="metric-artifacts">0</b></button>
-            <button type="button" data-metric="compaction"><span class="metric-dot compaction"></span>Compactions <b id="metric-compactions">0</b></button>
           </div>
 
           <div id="scene-frame">
@@ -167,7 +157,18 @@
               <button type="button" data-view-action="two-d" aria-label="Switch to 2D overview" title="Switch to 2D overview">2D</button>
             </div>
             <button id="inspect-exit" class="inspect-exit" type="button" data-view-action="overview" title="Exit inspection">Exit inspection</button>
-            <div class="live-chip"><span></span>LIVE</div>
+            <div class="map-live-hud" aria-label="Map status">
+              <div class="live-chip"><span></span>LIVE</div>
+              <div class="map-metrics" aria-label="Metric filters">
+                <span class="metric-label turn">Prompts <b id="metric-prompts">0</b></span>
+                <button type="button" data-metric="error"><span class="metric-dot error"></span>Errors <b id="metric-errors">0</b></button>
+                <button type="button" data-metric="long"><span class="metric-dot long"></span>Long calls <b id="metric-long">0</b></button>
+                <button type="button" data-metric="file"><span class="metric-dot file"></span>Files <b id="metric-files">0</b></button>
+                <button type="button" data-metric="diff"><span class="metric-dot diff"></span>Diffs <b id="metric-diffs">0</b></button>
+                <button type="button" data-metric="artifact"><span class="metric-dot artifact"></span>Artifacts <b id="metric-artifacts">0</b></button>
+                <button type="button" data-metric="compaction"><span class="metric-dot compaction"></span>Compactions <b id="metric-compactions">0</b></button>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -178,6 +179,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v247175797353994.js"></script>
+    <script type="module" src="/app-v269315432836461.js"></script>
   </body>
 </html>

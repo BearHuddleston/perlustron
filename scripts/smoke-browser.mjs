@@ -93,7 +93,17 @@ async function reservePort() {
 async function startDemoServer({ privacyMode = false } = {}) {
   const port = await reservePort();
   const cargoBin = findExecutable(cargoCandidates, "cargo");
-  const args = ["run", "--quiet", "--", "--demo", "--no-open", "--dev-assets", "--port", String(port)];
+  const args = [
+    "run",
+    "--quiet",
+    "--",
+    "--demo",
+    "--no-open",
+    "--dev-assets",
+    "--require-api-token",
+    "--port",
+    String(port),
+  ];
   if (privacyMode) {
     args.push("--privacy-mode");
   }

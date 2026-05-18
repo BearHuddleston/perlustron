@@ -28,6 +28,7 @@ type MetadataIcon = "codex" | "source" | "git" | "policy" | "model" | "tools";
 type ViewAction = "zoom-in" | "zoom-out" | "two-d" | "overview";
 type SceneBucket = "prompt" | "call" | "fileChange" | "message" | "compaction";
 type OverviewCameraMode = "three-d" | "two-d";
+type MapMetricCounts = Record<Metric, number> & { prompts: number };
 type Connector =
   | [string, string]
   | {
@@ -40,6 +41,7 @@ type TimerId = ReturnType<typeof setTimeout>;
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
 const METRICS = ["error", "long", "file", "diff", "artifact", "compaction"] as const satisfies readonly Metric[];
+const LONG_CALL_DURATION_MS = 30_000;
 const VIEW_ACTIONS = ["zoom-in", "zoom-out", "two-d", "overview"] as const satisfies readonly ViewAction[];
 const METADATA_ICON_PATHS: Record<MetadataIcon, readonly string[]> = {
   codex: ["M4 7l5 5-5 5", "M12 17h8"],
@@ -858,6 +860,7 @@ const contextPressureValue = queryRequired<HTMLElement>("#context-pressure-value
 const contextPressureBars = queryRequired<HTMLElement>("#context-pressure-bars");
 const turnNumber = queryRequired<HTMLElement>("#turn-number");
 const turnTimestamp = queryRequired<HTMLElement>("#turn-timestamp");
+const metricPrompts = queryRequired<HTMLElement>("#metric-prompts");
 const metricErrors = queryRequired<HTMLElement>("#metric-errors");
 const metricLong = queryRequired<HTMLElement>("#metric-long");
 const metricFiles = queryRequired<HTMLElement>("#metric-files");
@@ -962,6 +965,7 @@ const CAMERA_FLY_LOOK_SENSITIVITY = 0.0032;
 const CAMERA_FLY_LOOK_MIN_TARGET_DISTANCE = 1.4;
 const CAMERA_FLY_LOOK_MAX_TARGET_DISTANCE = 28;
 const CAMERA_FLY_LOOK_PITCH_LIMIT = Math.PI / 2 - 0.08;
+const SCREEN_PICK_RADIUS_PX = 24;
 
 let renderer: THREE.WebGLRenderer | null = null;
 try {
@@ -1070,7 +1074,6 @@ let viewportRefreshQueued = false;
 let viewportRefreshNeedsOverview = false;
 let pointColorsDirty = true;
 const activeCameraFlyKeys = new Set<string>();
-let cameraPanActive = false;
 let cameraFlyLookActive = false;
 let cameraFlyLookPointerId: number | null = null;
 let cameraFlyLookLastX = 0;
@@ -1224,7 +1227,6 @@ setEventContextCollapsed(false);
 window.addEventListener("resize", resize);
 canvas.addEventListener("contextmenu", preventCanvasContextMenu);
 canvas.addEventListener("wheel", handleCameraZoomWheel, { passive: false });
-canvas.addEventListener("pointerdown", handleCanvasPointerLockPointerDown);
 canvas.addEventListener("pointerdown", handleCameraFlyLookPointerDown);
 canvas.addEventListener("pointermove", updatePointer);
 canvas.addEventListener("pointermove", handleCameraFlyLookPointerMove);
@@ -1232,9 +1234,6 @@ canvas.addEventListener("pointerup", endCameraFlyLookPointer);
 canvas.addEventListener("pointercancel", endCameraFlyLookPointer);
 canvas.addEventListener("click", onCanvasClick);
 canvas.addEventListener("dblclick", onCanvasDoubleClick);
-document.addEventListener("mousemove", handleCanvasPointerLockMouseMove);
-document.addEventListener("mouseup", handleCanvasPointerLockMouseUp);
-document.addEventListener("pointerlockchange", handleCanvasPointerLockChange);
 setupControls();
 resize();
 
@@ -1785,17 +1784,44 @@ function rebuildScene({
 function updateGraphChrome(): void {
   const current = currentGraph();
   const ui = current.ui;
+  const mapMetrics = collectMapMetricCounts();
   stageTurnCount.textContent = formatNumber(ui.totalTurns);
   stageStarted.textContent = recordMetricValue(current.lineCount, current.pendingBytes);
-  metricErrors.textContent = `${ui.metricErrors}`;
-  metricLong.textContent = `${ui.metricLongCalls}`;
-  metricFiles.textContent = `${ui.metricFiles}`;
-  metricDiffs.textContent = `${ui.metricDiffs}`;
-  metricArtifacts.textContent = `${ui.metricArtifacts}`;
-  metricCompactions.textContent = `${ui.metricCompactions}`;
+  metricPrompts.textContent = formatNumber(mapMetrics.prompts);
+  metricErrors.textContent = formatNumber(mapMetrics.error);
+  metricLong.textContent = formatNumber(mapMetrics.long);
+  metricFiles.textContent = formatNumber(mapMetrics.file);
+  metricDiffs.textContent = formatNumber(mapMetrics.diff);
+  metricArtifacts.textContent = formatNumber(mapMetrics.artifact);
+  metricCompactions.textContent = formatNumber(mapMetrics.compaction);
   renderContextPressure(current.tokenTelemetry);
   renderMetadataList();
   renderActiveModePanel();
+}
+
+function collectMapMetricCounts(): MapMetricCounts {
+  const counts: MapMetricCounts = {
+    prompts: 0,
+    error: 0,
+    long: 0,
+    file: 0,
+    diff: 0,
+    artifact: 0,
+    compaction: 0,
+  };
+
+  nodes.forEach((node) => {
+    if (node.type === "prompt") {
+      counts.prompts += 1;
+      return;
+    }
+    METRICS.forEach((metric) => {
+      if (nodeMatchesMetric(node, metric)) {
+        counts[metric] += 1;
+      }
+    });
+  });
+  return counts;
 }
 
 function parserHealthNumber(value: number): string {
@@ -3785,85 +3811,6 @@ function handleCameraZoomWheel(event: WheelEvent): void {
   event.preventDefault();
 }
 
-function handleCanvasPointerLockPointerDown(event: PointerEvent): void {
-  if (event.button !== 2 || isTextEntryTarget(event.target)) {
-    return;
-  }
-  // Left clicks need normal client coordinates for raycast picking; OrbitControls
-  // still handles left-drag panning without pointer lock.
-  requestCanvasPointerLock();
-}
-
-function requestCanvasPointerLock(): void {
-  if (document.pointerLockElement === canvas || typeof canvas.requestPointerLock !== "function") {
-    return;
-  }
-  try {
-    const lockResult = canvas.requestPointerLock() as Promise<void> | void;
-    void lockResult?.catch(logTransientError);
-  } catch (error) {
-    logTransientError(error);
-  }
-}
-
-function handleCanvasPointerLockMouseMove(event: MouseEvent): void {
-  if (document.pointerLockElement !== canvas) {
-    return;
-  }
-  if (cameraFlyLookActive) {
-    applyCameraFlyLookDelta(event.movementX, event.movementY);
-    event.preventDefault();
-  } else if (cameraPanActive) {
-    panCameraByPointerDelta(event.movementX, event.movementY);
-    event.preventDefault();
-  }
-}
-
-function handleCanvasPointerLockMouseUp(event: MouseEvent): void {
-  if (event.button === 0) {
-    cameraPanActive = false;
-  } else if (event.button === 2) {
-    stopCameraFlyLook();
-  }
-
-  if ((event.buttons & 3) === 0) {
-    exitCanvasPointerLock();
-  }
-}
-
-function handleCanvasPointerLockChange(): void {
-  if (document.pointerLockElement === canvas) {
-    return;
-  }
-  cameraPanActive = false;
-  stopCameraFlyLook();
-}
-
-function exitCanvasPointerLock(): void {
-  if (document.pointerLockElement === canvas && typeof document.exitPointerLock === "function") {
-    document.exitPointerLock();
-  }
-}
-
-function panCameraByPointerDelta(deltaX: number, deltaY: number): void {
-  if (!deltaX && !deltaY) {
-    return;
-  }
-  const distance = Math.max(1, camera.position.distanceTo(controls.target));
-  const worldPerPixel =
-    (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * distance) / Math.max(1, canvas.clientHeight);
-  camera.getWorldDirection(cameraFlyForward);
-  cameraFlyRight.crossVectors(cameraFlyForward, camera.up).normalize();
-  scratchVector.crossVectors(cameraFlyRight, cameraFlyForward).normalize();
-  cameraFlyMove
-    .copy(cameraFlyRight)
-    .multiplyScalar(-deltaX * worldPerPixel)
-    .addScaledVector(scratchVector, deltaY * worldPerPixel);
-  camera.position.add(cameraFlyMove);
-  controls.target.add(cameraFlyMove);
-  controls.update();
-}
-
 function handleCameraFlyLookPointerDown(event: PointerEvent): void {
   if (event.button !== 2 || !shouldHandleCameraFlyLook(event)) {
     return;
@@ -3883,9 +3830,6 @@ function handleCameraFlyLookPointerDown(event: PointerEvent): void {
 
 function handleCameraFlyLookPointerMove(event: PointerEvent): void {
   if (!cameraFlyLookActive || event.pointerId !== cameraFlyLookPointerId) {
-    return;
-  }
-  if (document.pointerLockElement === canvas) {
     return;
   }
 
@@ -3927,7 +3871,7 @@ function stopCameraFlyLook(pointerId: number | null = cameraFlyLookPointerId): v
       canvas.releasePointerCapture(pointerId);
     }
   } catch {
-    // Pointer lock may already have released the pointer capture state.
+    // The pointer may have already been released by the browser.
   }
 }
 
@@ -3986,7 +3930,7 @@ function expireFreshNodes(now: number): void {
 
 function updateCompactionPulseEffects(now: number, time: number): void {
   const freshCompactions = nodes.filter(
-    (node): node is CompactionSceneNode => node.type === "compaction" && nodeIsFreshAt(node, now)
+    (node): node is CompactionSceneNode => node.type === "compaction" && nodeVisibleInCurrentView(node) && nodeIsFreshAt(node, now)
   );
   const pulseCues = new Map<
     string,
@@ -4054,10 +3998,11 @@ function compactionProgressAnchorNode(): SceneNode | null {
 
 function updateSteeringPulseEffects(now: number, time: number): void {
   const freshPrompts = nodes.filter(
-    (node): node is PromptSceneNode => node.type === "prompt" && nodeIsFreshAt(node, now)
+    (node): node is PromptSceneNode => node.type === "prompt" && nodeVisibleInCurrentView(node) && nodeIsFreshAt(node, now)
   );
   const streamingPrompt = liveCues.assistantStreaming ? latestPromptFocusNode() : null;
-  const steeringPrompts = uniquePromptNodes(streamingPrompt ? [...freshPrompts, streamingPrompt] : freshPrompts);
+  const visibleStreamingPrompt = streamingPrompt && nodeVisibleInCurrentView(streamingPrompt) ? streamingPrompt : null;
+  const steeringPrompts = uniquePromptNodes(visibleStreamingPrompt ? [...freshPrompts, visibleStreamingPrompt] : freshPrompts);
   const activeIds = new Set(steeringPrompts.map((node) => node.id));
 
   removeInactivePulseMeshes(steeringPulseMeshes, steeringPulseGroup, activeIds);
@@ -4132,7 +4077,7 @@ function updatePointMarkers(): void {
 
   nodes.forEach((node, index) => {
     const offset = index * 3;
-    if (nodeVisibleInCurrentMode(node)) {
+    if (nodeVisibleInCurrentView(node)) {
       positions[offset] = node.position.x;
       positions[offset + 1] = node.position.y;
       positions[offset + 2] = node.position.z;
@@ -4180,6 +4125,15 @@ function writeNodeMatrix(
   fresh = nodeIsFreshAt(node, now),
   selected = node.id === selectedNodeId
 ): void {
+  if (!nodeVisibleInCurrentView(node)) {
+    scratchObject.position.set(0, HIDDEN_INSPECT_POINT_Y, 0);
+    scratchObject.rotation.set(0, 0, 0);
+    scratchObject.scale.setScalar(0);
+    scratchObject.updateMatrix();
+    mesh.setMatrixAt(index, scratchObject.matrix);
+    return;
+  }
+
   const freshProgress = freshAnimationProgress(node, now);
   const freshCompaction = fresh && node.type === "compaction";
   const growth = fresh ? (freshCompaction ? 0.18 + easeOutCubic(freshProgress) * 1.08 : 0.26 + easeOutCubic(freshProgress) * 0.74) : 1;
@@ -4239,7 +4193,7 @@ function updateConnectorGeometry(): void {
     const toId = connectorToId(connector);
     const from = nodeById.get(fromId);
     const to = nodeById.get(toId);
-    if (!from || !to) {
+    if (!from || !to || !nodeVisibleInCurrentView(from) || !nodeVisibleInCurrentView(to)) {
       return;
     }
     let previous = from.position;
@@ -4298,14 +4252,48 @@ function pickNode(): SceneNode | null {
   const hits = raycaster.intersectObjects(meshes, false);
   for (const hit of hits) {
     if (hit.object === pointMesh && hit.index !== undefined) {
-      return pointMesh.userData.nodes[hit.index] || null;
+      const node = pointMesh.userData.nodes[hit.index] || null;
+      if (node && nodeVisibleInCurrentView(node)) {
+        return node;
+      }
+      continue;
     }
     if (hit.instanceId !== undefined) {
       const bucketNodes = (hit.object as NodeInstancedMesh).userData.nodes;
-      return bucketNodes[hit.instanceId] || null;
+      const node = bucketNodes[hit.instanceId] || null;
+      if (node && nodeVisibleInCurrentView(node)) {
+        return node;
+      }
     }
   }
-  return null;
+  return nearestVisibleScreenNode();
+}
+
+function nearestVisibleScreenNode(): SceneNode | null {
+  const rect = canvas.getBoundingClientRect();
+  const pickX = rect.left + ((pointer.x + 1) / 2) * rect.width;
+  const pickY = rect.top + ((1 - pointer.y) / 2) * rect.height;
+  let nearest: SceneNode | null = null;
+  let nearestDistanceSq = SCREEN_PICK_RADIUS_PX * SCREEN_PICK_RADIUS_PX;
+
+  nodes.forEach((node) => {
+    if (!nodeVisibleInCurrentView(node)) {
+      return;
+    }
+    scratchVector.copy(node.position).project(camera);
+    if (scratchVector.z < -1 || scratchVector.z > 1) {
+      return;
+    }
+    const nodeX = rect.left + ((scratchVector.x + 1) / 2) * rect.width;
+    const nodeY = rect.top + ((1 - scratchVector.y) / 2) * rect.height;
+    const distanceSq = (nodeX - pickX) ** 2 + (nodeY - pickY) ** 2;
+    if (distanceSq <= nearestDistanceSq) {
+      nearest = node;
+      nearestDistanceSq = distanceSq;
+    }
+  });
+
+  return nearest;
 }
 
 function setRawModePayload(payload: unknown): void {
@@ -4780,7 +4768,7 @@ function syncPointMarkerColors(): void {
 function colorForNode(node: SceneNode, selected: boolean): THREE.Color {
   const base = kindColor[node.kind] ?? kindColor.tool;
   scratchColor.setHex(base);
-  if (!nodeVisibleInCurrentMode(node)) {
+  if (!nodeVisibleInCurrentView(node)) {
     scratchColor.setRGB(0, 0, 0);
   } else if (selected) {
     scratchColor.lerp(whiteColor, 0.38);
@@ -4788,7 +4776,7 @@ function colorForNode(node: SceneNode, selected: boolean): THREE.Color {
     scratchColor.lerp(whiteColor, 0.24);
   } else if (mode === "inspect" && node.promptId !== activePromptId) {
     scratchColor.multiplyScalar(0.34);
-  } else if ((activeMetric && !nodeMatchesMetric(node, activeMetric)) || !nodeMatchesSearch(node)) {
+  } else if (!nodeMatchesSearch(node)) {
     scratchColor.multiplyScalar(0.38);
   }
   return scratchColor;
@@ -4796,6 +4784,10 @@ function colorForNode(node: SceneNode, selected: boolean): THREE.Color {
 
 function nodeVisibleInCurrentMode(node: SceneNode): boolean {
   return mode !== "inspect" || !activePromptId || node.promptId === activePromptId;
+}
+
+function nodeVisibleInCurrentView(node: SceneNode): boolean {
+  return nodeVisibleInCurrentMode(node) && (!activeMetric || nodeMatchesMetric(node, activeMetric));
 }
 
 function resize(): void {
@@ -5535,7 +5527,7 @@ function modeRowFromSceneNode(node: SceneNode): ModeEventRow {
   if (nodeMatchesMetric(node, "error") || errorishText(`${node.title} ${detail}`)) {
     flags.add("error");
   }
-  if (node.type === "call" && node.source.durationMs !== null && node.source.durationMs > 30_000) {
+  if (node.type === "call" && isLongCall(node.source)) {
     flags.add("long");
   }
   if (node.type === "fileChange") {
@@ -7083,26 +7075,23 @@ function navigateSelected(direction: number): void {
 function orderedSelectableNodes(): SceneNode[] {
   const selectableNodes = mode === "inspect" && activePromptId ? buildInspectLayout(activePromptId).visibleNodes : nodes;
   return selectableNodes
-    .filter((node) => node.type !== "prompt" || node.promptId === activePromptId || mode === "overview")
+    .filter((node) => nodeVisibleInCurrentView(node) && (node.type !== "prompt" || node.promptId === activePromptId || mode === "overview"))
     .sort(inspectNodeSort);
 }
 
 function selectMetric(metric: Metric): void {
   activeMetric = activeMetric === metric ? null : metric;
   setActiveButton(metricButtons, (button) => button.dataset.metric === activeMetric);
+  if (mode === "inspect") {
+    mode = "overview";
+    activePromptId = null;
+    setLayoutTargets({ preserveCamera: true });
+  } else {
+    refreshActiveConnectors();
+    updateConnectorGeometry();
+    updatePointMarkers();
+  }
   syncInstanceColors();
-  if (activeMetric) {
-    focusFirstMetricMatch(activeMetric);
-  }
-}
-
-function focusFirstMetricMatch(metric: Metric): boolean {
-  const match = nodes.find((node) => node.type !== "prompt" && nodeMatchesMetric(node, metric));
-  if (!match) {
-    return false;
-  }
-  enterInspectMode(match.promptId, match);
-  return true;
 }
 
 function nodeMatchesMetric(node: SceneNode, metric: Metric | null): boolean {
@@ -7122,64 +7111,60 @@ function nodeMatchesMetric(node: SceneNode, metric: Metric | null): boolean {
     return fileChangeMatchesMetric(node.source, metric);
   }
   if (node.type === "message") {
-    return messageMatchesMetric(node.source, metric);
+    return false;
   }
   return callMatchesMetric(node.source, metric);
 }
 
-function messageMatchesMetric(message: MessageNode, metric: Metric | null): boolean {
-  if (!metric) {
-    return true;
-  }
-  if (metric === "long") {
-    return message.text.length > 1200;
-  }
-  return message.text.toLowerCase().includes(metric);
-}
-
-function fileChangeMatchesMetric(change: FileChangeNode, metric: Metric | null): boolean {
-  if (!metric) {
-    return true;
-  }
-  const text = fileChangeSearchText(change).toLowerCase();
+function fileChangeMatchesMetric(change: FileChangeNode, metric: Metric): boolean {
   if (metric === "file") {
     return true;
   }
   if (metric === "diff") {
+    const text = fileChangeSearchText(change).toLowerCase();
     return normalizedFileChangeType(change) !== "add" || text.includes("diff") || text.includes("@@");
   }
-  if (metric === "long") {
-    return (change.preview || "").length > 1200 || (change.detail || "").length > 1600;
-  }
-  return text.includes(metric);
+  return false;
 }
 
 function fileChangeSearchText(change: FileChangeNode): string {
   return `${normalizedFileChangeType(change)} ${change.path} ${change.preview} ${change.detail}`;
 }
 
-function callMatchesMetric(call: CallNode, metric: Metric | null): boolean {
-  if (!metric) {
-    return true;
-  }
-  const text = callSearchText(call);
+function callMatchesMetric(call: CallNode, metric: Metric): boolean {
   if (metric === "long") {
-    return (call.argumentPreview || "").length > 1400 || (call.outputPreview || "").length > 1200;
+    return isLongCall(call);
+  }
+  if (metric === "error") {
+    const kind = call.kind.toLowerCase();
+    const status = call.status.toLowerCase();
+    return kind === "error" || errorishText(status);
   }
   if (metric === "file") {
-    return /(file|read|write|rg|patch)/.test(text);
+    return callNameMatches(call.name, ["file", "read", "write", "edit", "multiedit", "grep", "glob", "ls", "apply_patch"]);
   }
   if (metric === "diff") {
-    return /(diff|patch)/.test(text);
+    return callNameMatches(call.name, ["diff", "apply_patch"]);
   }
   if (metric === "artifact") {
-    return text.includes("artifact");
+    const kind = call.kind.toLowerCase();
+    return kind === "artifact" || callNameMatches(call.name, ["artifact"]);
   }
-  return text.includes(metric);
+  return false;
 }
 
-function callSearchText(call: CallNode): string {
-  return `${call.kind} ${call.name} ${call.argumentPreview || ""} ${call.outputPreview || ""}`.toLowerCase();
+function isLongCall(call: Pick<CallNode, "durationMs">): boolean {
+  return call.durationMs !== null && call.durationMs >= LONG_CALL_DURATION_MS;
+}
+
+function callNameMatches(callName: string, tokens: readonly string[]): boolean {
+  const normalizedCallName = callName.toLowerCase();
+  return tokens.some((token) => {
+    if (normalizedCallName === token) {
+      return true;
+    }
+    return new RegExp(`(^|[._:-])${token}([._:-]|$)`).test(normalizedCallName);
+  });
 }
 
 function nodeMatchesSearch(node: SceneNode): boolean {
