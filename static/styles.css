@@ -758,6 +758,12 @@ kbd {
   width: 100%;
   height: 100%;
   display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+#space.grabbing {
+  cursor: grabbing;
 }
 
 #space.webgl-unavailable {
@@ -1223,15 +1229,14 @@ kbd {
 .event-popup {
   position: absolute;
   right: 16px;
-  bottom: 16px;
+  top: 16px;
   z-index: 5;
   width: min(410px, calc(100% - 32px));
   max-height: min(520px, calc(100% - 72px));
   display: grid;
-  grid-template-rows: auto auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
   padding: 0;
   border: 1px solid rgba(146, 232, 255, 0.24);
   border-radius: 8px;
@@ -1254,12 +1259,41 @@ kbd {
   display: none;
 }
 
+.event-popup.compact .event-popup-scroll {
+  display: none;
+}
+
 .event-popup.compact .panel-heading {
   border-bottom: 0;
 }
 
 .event-popup.compact .panel-heading strong {
   font-size: 13px;
+}
+
+.event-popup-scroll {
+  min-height: 0;
+  margin-right: -10px;
+  padding-right: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: rgba(184, 194, 206, 0.32) transparent;
+  scrollbar-width: thin;
+}
+
+.event-popup-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.event-popup-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.event-popup-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-color: rgba(184, 194, 206, 0.34);
+  background-clip: content-box;
 }
 
 .live-chip {
@@ -1297,6 +1331,12 @@ kbd {
   background: transparent;
   color: var(--muted);
   font-weight: 800;
+}
+
+.viewport-controls button.active,
+.viewport-controls button[aria-pressed="true"] {
+  color: var(--cyan);
+  background: rgba(57, 210, 230, 0.12);
 }
 
 .viewport-controls button:last-child {
@@ -1344,6 +1384,7 @@ kbd {
 
 .panel-heading div:first-child {
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .panel-heading span {
@@ -1433,23 +1474,96 @@ kbd {
 }
 
 .event-popup-actions {
-  display: flex;
-  gap: 1px;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, 28px);
+  gap: 3px;
   border: 0;
   border-radius: 0;
 }
 
 .event-popup-actions button {
-  width: 30px;
+  width: 28px;
   height: 28px;
-  border: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
   background: transparent;
   color: var(--muted);
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.event-popup-actions button:disabled {
+  color: var(--dim);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.control-icon {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.previous .control-icon::before,
+.next .control-icon::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  width: 7px;
+  height: 7px;
+}
+
+.previous .control-icon::before {
+  left: 4px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.next .control-icon::before {
+  right: 4px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.collapse-control .control-icon::before,
+.collapse-control .control-icon::after,
+.close-control .control-icon::before,
+.close-control .control-icon::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 6px;
+  width: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.collapse-control .control-icon::after {
+  opacity: 0;
+  transform: rotate(90deg);
+}
+
+.event-popup.compact .collapse-control .control-icon::after {
+  opacity: 1;
+}
+
+.close-control .control-icon::before {
+  transform: rotate(45deg);
+}
+
+.close-control .control-icon::after {
+  transform: rotate(-45deg);
 }
 
 .viewport-controls button:hover,
 .inspect-exit:hover,
-.event-popup-actions button:hover {
+.event-popup-actions button:hover:not(:disabled) {
   border-color: rgba(57, 210, 230, 0.34);
   color: var(--cyan);
   background: rgba(57, 210, 230, 0.07);
@@ -1919,11 +2033,6 @@ kbd {
   cursor: not-allowed;
 }
 
-.event-summary {
-  scrollbar-color: rgba(184, 194, 206, 0.32) transparent;
-  scrollbar-width: thin;
-}
-
 #stream-title {
   display: none;
 }
@@ -2057,7 +2166,7 @@ kbd {
 
   .event-popup {
     right: 10px;
-    bottom: 10px;
+    top: 10px;
     width: min(380px, calc(100% - 20px));
     max-height: min(430px, calc(100% - 56px));
   }

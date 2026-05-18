@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=269315432836461" />
+    <link rel="stylesheet" href="/styles.css?v=59108135732965" />
   </head>
   <body>
     <main id="app">
@@ -118,43 +118,53 @@
                   <span>Event Context</span>
                   <strong id="context-event-title">Latest context</strong>
                 </div>
-                <div class="event-popup-actions">
-                  <button id="prev-event" type="button" title="Previous">&lt;</button>
-                  <button id="next-event" type="button" title="Next">&gt;</button>
-                  <button id="stream-minimize" type="button" title="Minimize context" aria-label="Collapse context">-</button>
-                  <button id="stream-close" type="button" title="Clear selection">X</button>
+                <div class="event-popup-actions" aria-label="Event context navigation">
+                  <button id="prev-event" class="event-popup-control previous" type="button" title="Previous event" aria-label="Previous event">
+                    <span class="control-icon" aria-hidden="true"></span>
+                  </button>
+                  <button id="next-event" class="event-popup-control next" type="button" title="Next event" aria-label="Next event">
+                    <span class="control-icon" aria-hidden="true"></span>
+                  </button>
+                  <button id="stream-minimize" class="event-popup-control collapse-control" type="button" title="Minimize context" aria-label="Collapse context">
+                    <span class="control-icon" aria-hidden="true"></span>
+                  </button>
+                  <button id="stream-close" class="event-popup-control close-control" type="button" title="Clear selection" aria-label="Clear selection">
+                    <span class="control-icon" aria-hidden="true"></span>
+                  </button>
                 </div>
               </div>
-              <div class="context-meta">
-                <div class="context-meta-title">
-                  <span id="stream-title-label">Selection</span>
-                  <strong id="stream-kind">Select a turn</strong>
+              <div class="event-popup-scroll">
+                <div class="context-meta">
+                  <div class="context-meta-title">
+                    <span id="stream-title-label">Selection</span>
+                    <strong id="stream-kind">Select a turn</strong>
+                  </div>
+                  <div class="context-meta-detail">
+                    <span>Position</span>
+                    <strong id="turn-number">Latest context</strong>
+                  </div>
+                  <div class="context-meta-detail">
+                    <span>Time</span>
+                    <strong id="turn-timestamp">Live context</strong>
+                  </div>
                 </div>
-                <div class="context-meta-detail">
-                  <span>Position</span>
-                  <strong id="turn-number">Latest context</strong>
+                <div class="event-context-actions" aria-label="Event evidence actions">
+                  <button id="stream-copy-ref" type="button">Copy Ref</button>
+                  <button id="stream-open-timeline" type="button">Timeline</button>
+                  <button id="stream-open-transcript" type="button">Transcript</button>
+                  <button id="stream-open-raw" type="button">Raw</button>
                 </div>
-                <div class="context-meta-detail">
-                  <span>Time</span>
-                  <strong id="turn-timestamp">Live context</strong>
+                <div class="event-summary">
+                  <h2 id="stream-title">Select a turn</h2>
+                  <div id="stream-images" class="stream-images"></div>
+                  <div id="stream-data">Click an object to inspect its live JSONL record.</div>
                 </div>
-              </div>
-              <div class="event-context-actions" aria-label="Event evidence actions">
-                <button id="stream-copy-ref" type="button">Copy Ref</button>
-                <button id="stream-open-timeline" type="button">Timeline</button>
-                <button id="stream-open-transcript" type="button">Transcript</button>
-                <button id="stream-open-raw" type="button">Raw</button>
-              </div>
-              <div class="event-summary">
-                <h2 id="stream-title">Select a turn</h2>
-                <div id="stream-images" class="stream-images"></div>
-                <div id="stream-data">Click an object to inspect its live JSONL record.</div>
               </div>
             </div>
             <div class="viewport-controls" aria-label="Viewport controls">
               <button type="button" data-view-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
               <button type="button" data-view-action="zoom-out" aria-label="Zoom out" title="Zoom out">-</button>
-              <button type="button" data-view-action="two-d" aria-label="Switch to 2D overview" title="Switch to 2D overview">2D</button>
+              <button type="button" data-view-action="two-d" aria-label="Switch to 2D overview" aria-pressed="false" title="Switch to 2D overview">2D</button>
             </div>
             <button id="inspect-exit" class="inspect-exit" type="button" data-view-action="overview" title="Exit inspection">Exit inspection</button>
             <div class="map-live-hud" aria-label="Map status">
@@ -179,6 +189,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v269315432836461.js"></script>
+    <script type="module" src="/app-v59108135732965.js"></script>
   </body>
 </html>

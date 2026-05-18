@@ -12,6 +12,9 @@ const { expect, finish } = createCheck("Event context panel");
 
 const eventPopup = cssBlockFor(styles, ".event-popup");
 const eventPopupCompact = cssBlockFor(styles, ".event-popup.compact");
+const eventPopupScroll = styles.match(/(?:^|\n)\.event-popup-scroll\s*\{(?<body>[^}]*)\}/m)?.groups?.body ?? "";
+const eventPopupActions = cssBlockFor(styles, ".event-popup-actions");
+const eventPopupActionButton = cssBlockFor(styles, ".event-popup-actions button");
 const contextMeta = cssBlockFor(styles, ".context-meta");
 const contextMetaTitle = cssBlockFor(styles, ".context-meta-title");
 const contextMetaTitleStrong = cssBlockFor(styles, ".context-meta-title strong");
@@ -23,8 +26,12 @@ const streamData = cssBlockFor(styles, "#stream-data");
 const streamMarkdown = cssBlockFor(styles, "#stream-data.stream-markdown");
 const annotationMeta = cssBlockFor(styles, ".annotation-meta");
 const loadErrorImageLink = cssBlockFor(styles, ".stream-images figure.load-error .stream-image-link");
+const eventContextRenderSignatureBlock = app.match(/function eventContextRenderSignature[\s\S]*?\n}\n\nfunction renderPlainEventContextBody/)?.[0] ?? "";
 
 expect(html.includes('id="stream-minimize"'), "Event context header should include a minimize/expand button.");
+expect(html.includes('class="event-popup-scroll"'), "Event context should keep the header outside the scrollable body.");
+expect(/id="prev-event"[^>]+aria-label="Previous event"/.test(html) && /id="next-event"[^>]+aria-label="Next event"/.test(html), "Event context navigation buttons should have clear accessible labels.");
+expect(/id="stream-close"[^>]+aria-label="Clear selection"/.test(html), "Event context close control should have a clear accessible label.");
 expect(/class="context-meta-title"[\s\S]*id="stream-title-label"[\s\S]*<strong id="stream-kind">/m.test(html), "Event context metadata should put the selected event label/value in a dedicated title row.");
 expect(
   /id="stream-minimize"[^>]+aria-label="Collapse context"/.test(html),
@@ -37,6 +44,7 @@ expect(!html.includes('data-inspector-tab="raw"'), "Removed Raw JSON sidebar tab
 expect(!html.includes('id="raw-json-preview"'), "Removed Raw JSON preview should stay out of the DOM.");
 expect(app.includes("setEventContextCollapsed"), "Frontend should synchronize compact/expanded context state.");
 expect(app.includes('streamMinimize.addEventListener("click"'), "Frontend should wire the context minimize button.");
+expect(!app.includes("streamMinimize.textContent"), "Collapse control should keep its icon markup instead of replacing it with text.");
 expect(app.includes('streamCopyRef.addEventListener("click", copySelectedEventRef)'), "Copy Ref should use the safe evidence-reference helper.");
 expect(app.includes('openSelectedEventMode("timeline")') && app.includes('openSelectedEventMode("transcript")') && app.includes('openSelectedEventMode("raw")'), "Event Context actions should jump to Timeline/Transcript/Raw without reopening the overlay.");
 expect(app.includes("contextEventTitle.textContent = node.kind.toUpperCase();"), "Event context header should show the selected event kind.");
@@ -49,8 +57,17 @@ expect(styles.includes(".event-popup.prompt-context .context-meta-title"), "Prom
 expect(/\.event-popup\.prompt-context\s+\.context-meta-title\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Prompt context should hide the selected-title metadata row.");
 expect(app.includes('setEventContextTitle(node.type === "prompt" ? "" : node.title, "Selection");'), "Event context metadata should keep selected titles for non-prompt nodes.");
 expect(html.includes('<div id="stream-data"'), "Event context body should render into a generic container so prompt markdown can use real elements.");
+expect(!app.includes("streamTimer") && !app.includes("function typeStream"), "Event context should render selected records immediately instead of using a typewriter stream timer.");
+expect(app.includes("function openEventContext") && app.includes("function renderPlainEventContextBody"), "Event context should use static selection rendering helpers.");
+expect(app.includes("eventContextRenderedSelection"), "Event context should track the rendered selection signature across live refreshes.");
+expect(app.includes("function eventContextRenderSignature"), "Event context should compare rendered selection content before repainting.");
+expect(app.includes("skipStableRender") && app.includes("openEventContext(selected, { skipStableRender: true })"), "Live graph refreshes should not repaint stable selected Event Context content.");
+expect(!eventContextRenderSignatureBlock.includes("image.url"), "Event context render signatures should ignore volatile image cache-busting URLs.");
+const followLatestGraphUpdateBlock = app.match(/function followLatestGraphUpdate[\s\S]*?\n}\n\nfunction shouldAutoFollowLiveGraph/)?.[0] ?? "";
+expect(followLatestGraphUpdateBlock.length > 0, "Live graph follow helper should remain discoverable.");
+expect(!followLatestGraphUpdateBlock.includes("openEventContext(latest)") && !followLatestGraphUpdateBlock.includes("selectedNodeId = latest.id"), "Live graph follow should not change the selected Event Context node.");
 expect(app.includes("function renderStreamMarkdown"), "Prompt Event Context bodies should render Markdown instead of raw preformatted text.");
-expect(app.includes('if (node.type === "prompt") {\n      renderStreamMarkdown(payload);'), "Prompt nodes should use the Markdown renderer in Event Context.");
+expect(app.includes('if (node.type === "prompt") {\n    renderStreamMarkdown(payload);'), "Prompt nodes should use the Markdown renderer in Event Context.");
 expect(app.includes('streamData.classList.add("stream-markdown")'), "Markdown rendering should mark the Event Context body for readable prose styling.");
 expect(app.includes("function renderAnnotationPrompt"), "Browser annotation prompts should use a dedicated renderer instead of generic Markdown.");
 expect(app.includes('textContent = "Diff comments"'), "Annotation prompt renderer should expose a clean Diff comments heading.");
@@ -66,22 +83,27 @@ expect(app.includes("turnTimestamp.title = timestamp;"), "Event context should k
 expect(app.includes("function canShowEventContext"), "Frontend should centralize whether Event Context is allowed to appear.");
 expect(app.includes('return activeAppMode === "map"'), "Event Context should only be allowed in Map mode.");
 expect(app.includes('if (nextMode !== "map") {\n    hideEventPopup();\n  }'), "Switching away from Map should hide the Event Context overlay.");
-expect(!app.includes('openSyntheticStream("TIMELINE"'), "Timeline mode should not open the floating Event Context overlay.");
-expect(!app.includes('openSyntheticStream("TRANSCRIPT"'), "Transcript mode should not open the floating Event Context overlay.");
-expect(app.includes("openStream(row.node, { reveal: false })"), "Timeline row selection should update selection/raw payload without revealing Event Context.");
+expect(!app.includes('openSyntheticEventContext("TIMELINE"'), "Timeline mode should not open the floating Event Context overlay.");
+expect(!app.includes('openSyntheticEventContext("TRANSCRIPT"'), "Transcript mode should not open the floating Event Context overlay.");
+expect(app.includes("openEventContext(row.node, { reveal: false })"), "Timeline row selection should update selection/raw payload without revealing Event Context.");
 
 expect(eventPopup.length > 0, "Missing .event-popup styles.");
-expect(!/\btop:\s*0\s*;/.test(eventPopup), "Event context should not be pinned to the top of the scene.");
-expect(!/\bbottom:\s*0\s*;/.test(eventPopup), "Event context should not be pinned to the bottom as a full-height sheet.");
+expect(/\bright:\s*16px\s*;/.test(eventPopup) && /\btop:\s*16px\s*;/.test(eventPopup), "Event context should anchor to the top-right of the map.");
+expect(!/\bbottom:\s*/.test(eventPopup), "Event context should not anchor to the bottom of the map.");
 expect(!/\bmax-height:\s*none\s*;/.test(eventPopup), "Event context should cap its height so it cannot cover the whole map.");
 expect(/\bmax-height:\s*[^;]*(?:vh|calc|min)\(/.test(eventPopup), "Event context should use a responsive max-height.");
 expect(/\bborder-radius:\s*[^;]+;/.test(eventPopup), "Event context should render as a floating card rather than a wall-to-wall drawer.");
 expect(/\bbox-shadow:\s*[^;]+;/.test(eventPopup), "Event context floating card should have depth/shadow treatment.");
 expect(/\bbackdrop-filter:\s*[^;]+;/.test(eventPopup), "Event context should preserve the glass panel treatment.");
-expect(/overflow-y:\s*auto/.test(eventPopup) && /overflow-x:\s*hidden/.test(eventPopup), "Event context popup should own vertical scrolling instead of nested body scrollbars.");
+expect(/overflow:\s*visible/.test(eventPopup), "Event context shell should not let the scrollbar shrink the fixed header controls.");
+expect(/overflow-y:\s*auto/.test(eventPopupScroll) && /overflow-x:\s*hidden/.test(eventPopupScroll), "Event context scroll body should own vertical scrolling below the header.");
+expect(/margin-right:\s*-10px/.test(eventPopupScroll) && /padding-right:\s*10px/.test(eventPopupScroll), "Event context scrollbar should sit on the outer edge without shifting header controls.");
 
 expect(eventPopupCompact.length > 0, "Event context should define a compact/minimized state.");
 expect(/\.event-popup\.compact\s+\.context-meta\s*,\s*\.event-popup\.compact\s+\.event-context-actions\s*,\s*\.event-popup\.compact\s+\.event-summary\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Compact event context should hide detailed metadata, actions, and JSON copy.");
+expect(/\.event-popup\.compact\s+\.event-popup-scroll\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Compact event context should hide the scroll body.");
+expect(/grid-template-columns:\s*repeat\(4,\s*28px\)/.test(eventPopupActions), "Event context header controls should render as a stable icon grid.");
+expect(/place-items:\s*center/.test(eventPopupActionButton) && /border-radius:\s*4px/.test(eventPopupActionButton), "Event context header buttons should be compact centered icon controls.");
 expect(/\.event-context-actions\s*\{[^}]*flex-wrap:\s*wrap\s*;/m.test(styles), "Event evidence actions should wrap instead of overflowing cramped cards.");
 expect(/display:\s*grid/.test(contextMeta) && /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(contextMeta) && /background:\s*transparent/.test(contextMeta), "Event metadata should render as a flat two-tier grid instead of cramped columns.");
 expect(/grid-column:\s*1\s*\/\s*-1/.test(contextMetaTitle) && /border-bottom:/.test(contextMetaTitle), "Event title metadata should span the full panel width.");

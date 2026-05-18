@@ -900,7 +900,11 @@ const sceneFrame = queryRequired<HTMLElement>("#scene-frame");
 const STATUS_FALLBACK_POLL_INTERVAL_MS = 3500;
 const LIVE_UPDATE_RETRY_MS = 1000;
 const GRAPH_REFRESH_COALESCE_MS = 180;
+const MAP_CAMERA_FAR = 12_000;
+const MAP_GRID_DIVISIONS = 1_200;
+const MAP_GRID_SIZE = 12_000;
 const GRID_FOLLOW_STEP = 20;
+const MAP_FLOOR_Y = -1.4;
 const DEFAULT_OVERVIEW_CAMERA_DISTANCE = 38;
 const NARROW_OVERVIEW_CAMERA_DISTANCE = 52;
 const DEFAULT_2D_CAMERA_HEIGHT = 46;
@@ -950,7 +954,9 @@ const OVERVIEW_FILE_CONNECTOR_DROP_Y = 1.05;
 const OVERVIEW_SUBAGENT_BAND_OFFSET_Z = 3.8;
 const OVERVIEW_SUBAGENT_DEPTH_Z = 5.8;
 const OVERVIEW_ITEM_PADDING_Z = 2.4;
-const CAMERA_ZOOM_UNIT = 4.2;
+const CAMERA_ZOOM_MIN_UNIT = 6.5;
+const CAMERA_ZOOM_DISTANCE_FACTOR = 0.16;
+const CAMERA_ZOOM_MAX_UNIT = 34;
 const CAMERA_ZOOM_WHEEL_DELTA_UNIT = 100;
 const CAMERA_ZOOM_MAX_WHEEL_STEPS = 4;
 const CAMERA_FLY_MIN_SPEED = 16;
@@ -965,6 +971,7 @@ const CAMERA_FLY_LOOK_SENSITIVITY = 0.0032;
 const CAMERA_FLY_LOOK_MIN_TARGET_DISTANCE = 1.4;
 const CAMERA_FLY_LOOK_MAX_TARGET_DISTANCE = 28;
 const CAMERA_FLY_LOOK_PITCH_LIMIT = Math.PI / 2 - 0.08;
+const CAMERA_GRAB_PAN_CLICK_SLOP_PX = 4;
 const SCREEN_PICK_RADIUS_PX = 24;
 
 let renderer: THREE.WebGLRenderer | null = null;
@@ -991,12 +998,13 @@ const steeringPulseGroup = new THREE.Group();
 steeringPulseGroup.renderOrder = 4.2;
 scene.add(steeringPulseGroup);
 
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1200);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, MAP_CAMERA_FAR);
 camera.position.set(0, DEFAULT_2D_CAMERA_HEIGHT, 0.01);
 
 const controls = new OrbitControls(camera, renderer?.domElement ?? canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.07;
+controls.enablePan = false;
 controls.enableRotate = false;
 controls.enableZoom = false;
 controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
@@ -1008,9 +1016,17 @@ controls.target.set(0, 0, 0);
 const raycaster = new THREE.Raycaster();
 raycaster.params.Points.threshold = 1.05;
 const pointer = new THREE.Vector2();
+const centerPointer = new THREE.Vector2(0, 0);
 const scratchObject = new THREE.Object3D();
 const scratchColor = new THREE.Color();
 const scratchVector = new THREE.Vector3();
+const grabPanAnchorPoint = new THREE.Vector3();
+const grabPanCurrentPoint = new THREE.Vector3();
+const grabPanFloorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -MAP_FLOOR_Y);
+const grabPanMove = new THREE.Vector3();
+const grabPanRaycaster = new THREE.Raycaster();
+const grabPanRight = new THREE.Vector3();
+const grabPanUp = new THREE.Vector3();
 const cameraFlyForward = new THREE.Vector3();
 const cameraFlyRight = new THREE.Vector3();
 const cameraFlyMove = new THREE.Vector3();
@@ -1030,7 +1046,6 @@ const compactionPulseMeshes = new Map<string, PulseMesh[]>();
 const steeringPulseMeshes = new Map<string, PulseMesh[]>();
 let activePromptId: string | null = null;
 let selectedNodeId: string | null = null;
-let streamTimer: TimerId | null = null;
 let statusPollTimer: TimerId | null = null;
 let liveRetryPollTimer: TimerId | null = null;
 let liveEvents: EventSource | null = null;
@@ -1073,11 +1088,21 @@ let liveGraphAnimationTimer: TimerId | null = null;
 let viewportRefreshQueued = false;
 let viewportRefreshNeedsOverview = false;
 let pointColorsDirty = true;
+let eventContextRenderedSelection: { nodeId: string; signature: string } | null = null;
+let userPinnedCamera = false;
 const activeCameraFlyKeys = new Set<string>();
 let cameraFlyLookActive = false;
 let cameraFlyLookPointerId: number | null = null;
 let cameraFlyLookLastX = 0;
 let cameraFlyLookLastY = 0;
+let orbitPanPointerId: number | null = null;
+let orbitPanMoved = false;
+let orbitPanLastX = 0;
+let orbitPanLastY = 0;
+let orbitPanStartX = 0;
+let orbitPanStartY = 0;
+let orbitPanHasFloorAnchor = false;
+let suppressNextCanvasClick = false;
 let lastFrameTime = performance.now() / 1000;
 let elapsedTime = 0;
 
@@ -1203,8 +1228,8 @@ const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
 keyLight.position.set(14, 24, 12);
 scene.add(keyLight);
 
-const grid = new THREE.GridHelper(2400, 240, 0x16393f, 0x16393f);
-grid.position.y = -1.4;
+const grid = new THREE.GridHelper(MAP_GRID_SIZE, MAP_GRID_DIVISIONS, 0x16393f, 0x16393f);
+grid.position.y = MAP_FLOOR_Y;
 grid.material.transparent = true;
 grid.material.opacity = 0.34;
 scene.add(grid);
@@ -1227,6 +1252,10 @@ setEventContextCollapsed(false);
 window.addEventListener("resize", resize);
 canvas.addEventListener("contextmenu", preventCanvasContextMenu);
 canvas.addEventListener("wheel", handleCameraZoomWheel, { passive: false });
+canvas.addEventListener("pointerdown", handleOrbitPanPointerDown, { capture: true });
+canvas.addEventListener("pointermove", handleOrbitPanPointerMove, { capture: true });
+canvas.addEventListener("pointerup", endOrbitPanPointer, { capture: true });
+canvas.addEventListener("pointercancel", endOrbitPanPointer, { capture: true });
 canvas.addEventListener("pointerdown", handleCameraFlyLookPointerDown);
 canvas.addEventListener("pointermove", updatePointer);
 canvas.addEventListener("pointermove", handleCameraFlyLookPointerMove);
@@ -1656,8 +1685,6 @@ function followLatestGraphUpdate(previousFocus: THREE.Vector3 | null = null): vo
   } else {
     activePromptId = latest.promptId;
   }
-  const shouldRestartStream = selectedNodeId !== latest.id;
-  const contextWasVisible = isEventPopupVisible();
   mode = "overview";
   setLayoutTargets({ preserveCamera: true });
   if (previousFocus) {
@@ -1665,16 +1692,22 @@ function followLatestGraphUpdate(previousFocus: THREE.Vector3 | null = null): vo
   } else {
     frameOverview({ preserveDistance: true });
   }
-  if (contextWasVisible) {
-    openStream(latest, { restartStream: shouldRestartStream });
-  } else {
-    selectedNodeId = latest.id;
-    syncInstanceColors();
+  if (selectedNodeId && isEventPopupVisible()) {
+    syncSelectedSource();
   }
+  syncInstanceColors();
 }
 
 function shouldAutoFollowLiveGraph(): boolean {
-  return isTailing && !searchTerm && !activeMetric;
+  return isTailing && !userPinnedCamera && !searchTerm && !activeMetric;
+}
+
+function markManualCameraNavigation(): void {
+  userPinnedCamera = true;
+}
+
+function resumeCameraAutoFollow(): void {
+  userPinnedCamera = false;
 }
 
 function panWithFollowFocus(previousFocus: THREE.Vector3, nextFocus: THREE.Vector3): void {
@@ -1770,7 +1803,7 @@ function rebuildScene({
   updateConnectorGeometry();
   syncInstanceColors();
   if (selectedNodeId && nodeById.has(selectedNodeId)) {
-    syncSelectedSource({ restartStream: !preserveEventContext });
+    syncSelectedSource();
   } else {
     selectedNodeId = null;
     if (preserveEventContext) {
@@ -2016,7 +2049,7 @@ function patchExistingScene(): boolean {
   updateGraphChrome();
   syncInstanceColors();
   if (selectedNodeId && nodeById.has(selectedNodeId)) {
-    syncSelectedSource({ restartStream: false });
+    syncSelectedSource();
   } else {
     refreshEventContextTotals();
   }
@@ -3056,6 +3089,7 @@ function createBucket(
   mesh.userData.bucket = bucketName;
   mesh.userData.nodes = bucketNodes;
   mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 600);
+  mesh.frustumCulled = false;
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   scene.add(mesh);
@@ -3093,6 +3127,7 @@ function createConnectors() {
     opacity: 0.42,
   });
   lineMesh = new THREE.LineSegments(geometry, material);
+  lineMesh.frustumCulled = false;
   scene.add(lineMesh);
 }
 
@@ -3521,6 +3556,34 @@ function syncModeChrome(): void {
     "aria-label",
     inspectActive ? "Perlustron focused prompt inspection" : "Perlustron session workflow"
   );
+  syncViewActionControls();
+}
+
+function syncViewActionControls(): void {
+  const twoDActive = mode === "overview" && overviewCameraMode === "two-d";
+  viewActionButtons.forEach((button) => {
+    if (button.dataset.viewAction !== "two-d") {
+      return;
+    }
+    const label = twoDActive ? "Switch to 3D overview" : "Switch to 2D overview";
+    button.classList.toggle("active", twoDActive);
+    button.setAttribute("aria-pressed", String(twoDActive));
+    button.setAttribute("aria-label", label);
+    button.title = label;
+  });
+}
+
+function switchOverviewCameraMode(nextMode: OverviewCameraMode): void {
+  resumeCameraAutoFollow();
+  mode = "overview";
+  overviewCameraMode = nextMode;
+  setLayoutTargets({ preserveCamera: true });
+  frameOverview();
+  syncViewActionControls();
+}
+
+function toggleOverviewCameraMode(): void {
+  switchOverviewCameraMode(mode === "overview" && overviewCameraMode === "two-d" ? "three-d" : "two-d");
 }
 
 function timelineEntries(
@@ -3780,6 +3843,7 @@ function updateCameraFlight(delta: number): void {
   if (cameraFlyMove.lengthSq() < 0.000001) {
     return;
   }
+  markManualCameraNavigation();
 
   const distance = camera.position.distanceTo(controls.target);
   const baseSpeed = Math.min(CAMERA_FLY_MAX_SPEED, Math.max(CAMERA_FLY_MIN_SPEED, distance * CAMERA_FLY_DISTANCE_FACTOR));
@@ -3807,8 +3871,130 @@ function handleCameraZoomWheel(event: WheelEvent): void {
   if (Math.abs(steps) < 0.001) {
     return;
   }
-  zoomCamera(-steps * CAMERA_ZOOM_UNIT);
+  zoomCamera(-steps);
   event.preventDefault();
+}
+
+function handleOrbitPanPointerDown(event: PointerEvent): void {
+  if (event.button !== 0 || !shouldHandleOrbitPan(event)) {
+    return;
+  }
+  orbitPanPointerId = event.pointerId;
+  orbitPanMoved = false;
+  orbitPanLastX = event.clientX;
+  orbitPanLastY = event.clientY;
+  orbitPanStartX = event.clientX;
+  orbitPanStartY = event.clientY;
+  orbitPanHasFloorAnchor = grabPanFloorPointForPointer(event, grabPanAnchorPoint);
+  canvas.classList.add("grabbing");
+  try {
+    canvas.setPointerCapture(event.pointerId);
+  } catch {
+    // The browser may already be routing this pointer elsewhere.
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function handleOrbitPanPointerMove(event: PointerEvent): void {
+  if (event.pointerId !== orbitPanPointerId) {
+    return;
+  }
+  if ((event.buttons & 1) === 0) {
+    endOrbitPanPointer(event);
+    return;
+  }
+  const deltaX = event.clientX - orbitPanLastX;
+  const deltaY = event.clientY - orbitPanLastY;
+  orbitPanLastX = event.clientX;
+  orbitPanLastY = event.clientY;
+  const movedDistanceSq = (event.clientX - orbitPanStartX) ** 2 + (event.clientY - orbitPanStartY) ** 2;
+  orbitPanMoved = orbitPanMoved || movedDistanceSq > CAMERA_GRAB_PAN_CLICK_SLOP_PX ** 2;
+  const movedCamera = orbitPanHasFloorAnchor
+    ? translateCameraByFloorDrag(event)
+    : translateCameraByScreenDrag(deltaX, deltaY);
+  if (movedCamera) {
+    markManualCameraNavigation();
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function endOrbitPanPointer(event: PointerEvent): void {
+  if (event.pointerId !== orbitPanPointerId) {
+    return;
+  }
+  orbitPanPointerId = null;
+  suppressNextCanvasClick = suppressNextCanvasClick || orbitPanMoved;
+  orbitPanMoved = false;
+  orbitPanHasFloorAnchor = false;
+  canvas.classList.remove("grabbing");
+  try {
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  } catch {
+    // The pointer may already have been released by the browser.
+  }
+  event.stopImmediatePropagation();
+}
+
+function translateCameraByFloorDrag(event: PointerEvent): boolean {
+  if (!grabPanFloorPointForPointer(event, grabPanCurrentPoint)) {
+    return false;
+  }
+  grabPanMove.copy(grabPanAnchorPoint).sub(grabPanCurrentPoint);
+  if (grabPanMove.lengthSq() <= 0.000001) {
+    return false;
+  }
+  camera.position.add(grabPanMove);
+  controls.target.add(grabPanMove);
+  controls.update();
+  return true;
+}
+
+function grabPanFloorPointForPointer(event: PointerEvent, target: THREE.Vector3): boolean {
+  updatePointer(event);
+  grabPanRaycaster.setFromCamera(pointer, camera);
+  return Boolean(grabPanRaycaster.ray.intersectPlane(grabPanFloorPlane, target));
+}
+
+function translateCameraByScreenDrag(deltaX: number, deltaY: number): boolean {
+  if (!deltaX && !deltaY) {
+    return false;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
+  const floorDistance = cameraFloorViewDistance();
+  const visibleHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * floorDistance;
+  const unitsPerPixelY = visibleHeight / rect.height;
+  const unitsPerPixelX = (visibleHeight * camera.aspect) / rect.width;
+  grabPanRight.setFromMatrixColumn(camera.matrix, 0).normalize();
+  grabPanUp.setFromMatrixColumn(camera.matrix, 1).normalize();
+  grabPanMove
+    .set(0, 0, 0)
+    .addScaledVector(grabPanRight, -deltaX * unitsPerPixelX)
+    .addScaledVector(grabPanUp, deltaY * unitsPerPixelY);
+  camera.position.add(grabPanMove);
+  controls.target.add(grabPanMove);
+  controls.update();
+  return true;
+}
+
+function cameraFloorViewDistance(): number {
+  grabPanRaycaster.setFromCamera(centerPointer, camera);
+  if (grabPanRaycaster.ray.intersectPlane(grabPanFloorPlane, scratchVector)) {
+    return Math.max(0.001, camera.position.distanceTo(scratchVector));
+  }
+  camera.getWorldDirection(cameraFlyForward);
+  const verticalDistance = Math.abs(camera.position.y - MAP_FLOOR_Y);
+  return Math.max(0.001, verticalDistance / Math.max(0.12, Math.abs(cameraFlyForward.y)));
+}
+
+function shouldHandleOrbitPan(event: PointerEvent): boolean {
+  return activeAppMode === "map" && !isTextEntryTarget(event.target);
 }
 
 function handleCameraFlyLookPointerDown(event: PointerEvent): void {
@@ -3861,6 +4047,7 @@ function applyCameraFlyLookDelta(deltaX: number, deltaY: number): void {
   );
   camera.quaternion.setFromEuler(cameraFlyLookEuler);
   syncCameraFlyLookTarget();
+  markManualCameraNavigation();
 }
 
 function stopCameraFlyLook(pointerId: number | null = cameraFlyLookPointerId): void {
@@ -4060,6 +4247,7 @@ function createPointMarkers(): void {
     depthWrite: false,
   });
   const nextPointMesh = new THREE.Points(geometry, material) as NodePoints;
+  nextPointMesh.frustumCulled = false;
   nextPointMesh.renderOrder = 5;
   nextPointMesh.userData.nodes = nodes;
   pointMesh = nextPointMesh;
@@ -4210,10 +4398,14 @@ function updateConnectorGeometry(): void {
 }
 
 function onCanvasClick(event: MouseEvent): void {
+  if (suppressNextCanvasClick) {
+    suppressNextCanvasClick = false;
+    return;
+  }
   updatePointer(event);
   const hit = pickNode();
   if (hit) {
-    openStream(hit);
+    openEventContext(hit);
   }
 }
 
@@ -4227,7 +4419,7 @@ function onCanvasDoubleClick(event: MouseEvent): void {
     activePromptId = null;
     mode = "overview";
     setLayoutTargets();
-    openStream(hit);
+    openEventContext(hit);
     return;
   }
   if (hit.type === "prompt") {
@@ -4310,14 +4502,25 @@ function clearRawModePayload(): void {
   }
 }
 
-function openStream(
+function openEventContext(
   node: SceneNode | undefined | null,
-  { restartStream = true, reveal = true }: { restartStream?: boolean; reveal?: boolean } = {}
+  { reveal = true, skipStableRender = false }: { reveal?: boolean; skipStableRender?: boolean } = {}
 ): void {
   if (!node) {
     return;
   }
   selectedNodeId = node.id;
+  const nextSignature = eventContextRenderSignature(node);
+  if (
+    skipStableRender &&
+    eventContextRenderedSelection?.nodeId === node.id &&
+    eventContextRenderedSelection.signature === nextSignature &&
+    isEventPopupVisible()
+  ) {
+    setRawModePayload(node.source);
+    syncEventContextActions();
+    return;
+  }
   if (reveal) {
     showEventPopup();
   }
@@ -4341,42 +4544,37 @@ function openStream(
   syncEventContextActions();
   renderStreamImages(imagesForNode(node));
   const payload = node.detail || node.body || node.title;
-  if (restartStream) {
-    if (node.type === "prompt") {
-      renderStreamMarkdown(payload);
-    } else {
-      typeStream(payload);
-    }
+  if (node.type === "prompt") {
+    renderStreamMarkdown(payload);
+  } else {
+    renderPlainEventContextBody(payload);
   }
+  eventContextRenderedSelection = { nodeId: node.id, signature: nextSignature };
 }
 
-function stopStreamTimer(): void {
-  if (streamTimer) {
-    clearInterval(streamTimer);
-  }
-  streamTimer = null;
+function eventContextRenderSignature(node: SceneNode): string {
+  const images = imagesForNode(node)
+    .map((image) => [image.id, image.eventIndex, image.imageIndex, image.detail ?? "", image.mimeType].join("\u001f"))
+    .join("\u001e");
+  return [
+    node.id,
+    node.type,
+    node.kind,
+    node.eventIndex,
+    node.type === "prompt" ? node.promptIndex : "",
+    node.type === "prompt" ? "" : node.title,
+    timestampForNode(node),
+    node.detail || node.body || node.title,
+    images,
+  ].join("\u001d");
 }
 
-function typeStream(payload: string): void {
-  stopStreamTimer();
-
-  const lines = payload.split("\n");
-  let index = 0;
+function renderPlainEventContextBody(payload: string): void {
   streamData.classList.remove("stream-markdown");
-  streamData.textContent = "";
-  streamTimer = setInterval(() => {
-    const nextLines = lines.slice(index, index + 2);
-    if (!nextLines.length) {
-      stopStreamTimer();
-      return;
-    }
-    streamData.textContent += `${nextLines.join("\n")}\n`;
-    index += 2;
-  }, 34);
+  streamData.textContent = payload;
 }
 
 function renderStreamMarkdown(markdown: string): void {
-  stopStreamTimer();
   streamData.classList.add("stream-markdown");
   streamData.replaceChildren(renderAnnotationPrompt(markdown) ?? renderMarkdownFragment(markdown));
 }
@@ -4913,6 +5111,7 @@ function latestGraphFocusNode(): SceneNode | null {
 
 function resetEventContext(): void {
   hideEventPopup();
+  eventContextRenderedSelection = null;
   const current = graph;
   const latestPrompt = current?.prompts.at(-1);
   eventPopup.classList.remove("prompt-context");
@@ -4951,6 +5150,7 @@ function isEventPopupVisible(): boolean {
 
 function hideEventPopup(): void {
   eventPopup.classList.add("hidden");
+  eventContextRenderedSelection = null;
   syncEventContextActions();
 }
 
@@ -5003,10 +5203,13 @@ function modeRowDisplaySummary(row: ModeEventRow): string {
 
 function syncEventContextActions(): void {
   const hasSelection = Boolean(selectedEventContext());
+  const canNavigate = orderedSelectableNodes().length > 1;
   eventPopup.classList.toggle("has-selection", hasSelection);
   for (const button of [streamCopyRef, streamOpenTimeline, streamOpenTranscript, streamOpenRaw]) {
     button.disabled = !hasSelection;
   }
+  prevEvent.disabled = !canNavigate;
+  nextEvent.disabled = !canNavigate;
   if (!hasSelection) {
     streamCopyRef.textContent = "Copy Safe Ref";
   }
@@ -5025,14 +5228,14 @@ async function copySelectedEventRef(): Promise<void> {
       streamCopyRef.textContent = "Copy Safe Ref";
     }, 1200);
   } catch (error) {
-    openSyntheticStream("COPY", "Copy failed", errorMessage(error));
+    openSyntheticEventContext("COPY", "Copy failed", errorMessage(error));
   }
 }
 
 function copySelectedSafeReference(): void {
   const referenceText = selectedEventReferenceText();
   if (!referenceText) {
-    openSyntheticStream("COPY", "Select an event first", "Open Map or Timeline and select an event before copying a safe reference.");
+    openSyntheticEventContext("COPY", "Select an event first", "Open Map or Timeline and select an event before copying a safe reference.");
     return;
   }
   copyText(referenceText, "Copy-safe reference copied");
@@ -5087,7 +5290,6 @@ function setEventContextCollapsed(collapsed: boolean): void {
 
 function syncEventContextCollapse(): void {
   eventPopup.classList.toggle("compact", eventContextCollapsed);
-  streamMinimize.textContent = eventContextCollapsed ? "+" : "-";
   streamMinimize.title = eventContextCollapsed ? "Expand context" : "Minimize context";
   streamMinimize.setAttribute("aria-label", eventContextCollapsed ? "Expand context" : "Collapse context");
   streamMinimize.setAttribute("aria-expanded", String(!eventContextCollapsed));
@@ -5653,9 +5855,9 @@ function inspectModeRow(row: ModeEventRow): void {
     selectedNodeId = row.node.id;
     activePromptId = row.node.promptId;
     syncInstanceColors();
-    openStream(row.node, { reveal: false });
+    openEventContext(row.node, { reveal: false });
   } else {
-    openSyntheticStream(row.eventType.toUpperCase(), row.title, row.detail || row.title);
+    openSyntheticEventContext(row.eventType.toUpperCase(), row.title, row.detail || row.title);
   }
   setRawModePayload(row.source);
 }
@@ -6462,8 +6664,8 @@ function downloadText(filename: string, text: string, type: string): void {
 function copyText(text: string, title = "Copied"): void {
   void navigator.clipboard
     .writeText(text)
-    .then(() => openSyntheticStream("COPY", title, text))
-    .catch((error) => openSyntheticStream("COPY", "Copy failed", errorMessage(error)));
+    .then(() => openSyntheticEventContext("COPY", title, text))
+    .catch((error) => openSyntheticEventContext("COPY", "Copy failed", errorMessage(error)));
 }
 
 function errorishText(text: string): boolean {
@@ -6479,6 +6681,7 @@ function selectAppMode(nextMode: AppMode): void {
     hideEventPopup();
   }
   if (nextMode === "map") {
+    resumeCameraAutoFollow();
     exitInspectMode({ preserveCamera: true });
     frameOverview();
     return;
@@ -6494,11 +6697,11 @@ function selectAppMode(nextMode: AppMode): void {
     return;
   }
   if (nextMode === "health") {
-    openSyntheticStream("HEALTH", "Parser health", healthModeText());
+    openSyntheticEventContext("HEALTH", "Parser health", healthModeText());
     return;
   }
   if (nextMode === "insights") {
-    openSyntheticStream("INSIGHTS", "Debugging insights", insightsModeText());
+    openSyntheticEventContext("INSIGHTS", "Debugging insights", insightsModeText());
     return;
   }
   if (nextMode === "raw") {
@@ -6511,7 +6714,7 @@ function selectAppMode(nextMode: AppMode): void {
   if (nextMode === "settings") {
     return;
   }
-  openSyntheticStream("EXPORT", "Export reports", exportModeText());
+  openSyntheticEventContext("EXPORT", "Export reports", exportModeText());
 }
 
 function renderSearchAwareModePanel(): void {
@@ -6653,7 +6856,7 @@ function enterInspectMode(promptId: string, streamNode: SceneNode | undefined | 
   activePromptId = promptId;
   mode = "inspect";
   setLayoutTargets();
-  openStream(streamNode);
+  openEventContext(streamNode);
 }
 
 function exitInspectMode({ preserveCamera = false }: { preserveCamera?: boolean } = {}): void {
@@ -6688,6 +6891,9 @@ function setupControls() {
 
   liveToggle.addEventListener("click", () => {
     isTailing = !isTailing;
+    if (isTailing) {
+      resumeCameraAutoFollow();
+    }
     updateLiveChrome();
     if (isTailing) {
       startLiveUpdates();
@@ -6734,18 +6940,14 @@ function setupControls() {
     button.addEventListener("click", () => {
       const action = oneOf(VIEW_ACTIONS, button.dataset.viewAction, "two-d");
       if (action === "zoom-in") {
-        zoomCamera(CAMERA_ZOOM_UNIT);
+        zoomCamera(1);
       } else if (action === "zoom-out") {
-        zoomCamera(-CAMERA_ZOOM_UNIT);
+        zoomCamera(-1);
       } else if (action === "overview") {
         exitInspectMode();
-        overviewCameraMode = "three-d";
-        frameOverview();
+        switchOverviewCameraMode("three-d");
       } else {
-        mode = "overview";
-        overviewCameraMode = "two-d";
-        setLayoutTargets({ preserveCamera: true });
-        frameOverview();
+        toggleOverviewCameraMode();
       }
     });
   });
@@ -6797,7 +6999,7 @@ function handleGlobalKeydown(event: KeyboardEvent): void {
     }
     if (event.key === "?") {
       event.preventDefault();
-      openSyntheticStream("SHORTCUTS", "Keyboard shortcuts", shortcutsText());
+      openSyntheticEventContext("SHORTCUTS", "Keyboard shortcuts", shortcutsText());
       return;
     }
   }
@@ -7049,14 +7251,20 @@ function scheduleViewportRefresh({ overview = false }: { overview?: boolean } = 
   });
 }
 
-function zoomCamera(units: number): void {
-  if (Math.abs(units) < 0.001) {
+function zoomCamera(steps: number): void {
+  if (Math.abs(steps) < 0.001) {
     return;
   }
+  markManualCameraNavigation();
+  const units = steps * cameraZoomStepSize();
   camera.getWorldDirection(cameraFlyForward);
   camera.position.addScaledVector(cameraFlyForward, units);
   controls.target.addScaledVector(cameraFlyForward, units);
   controls.update();
+}
+
+function cameraZoomStepSize(): number {
+  return Math.min(CAMERA_ZOOM_MAX_UNIT, Math.max(CAMERA_ZOOM_MIN_UNIT, cameraFloorViewDistance() * CAMERA_ZOOM_DISTANCE_FACTOR));
 }
 
 function navigateSelected(direction: number): void {
@@ -7069,7 +7277,7 @@ function navigateSelected(direction: number): void {
   const next = ordered[nextIndex];
   selectedNodeId = next.id;
   activePromptId = next.promptId;
-  openStream(next);
+  openEventContext(next);
 }
 
 function orderedSelectableNodes(): SceneNode[] {
@@ -7174,15 +7382,16 @@ function nodeMatchesSearch(node: SceneNode): boolean {
   return `${node.kind} ${node.title} ${node.body}`.toLowerCase().includes(searchTerm);
 }
 
-function syncSelectedSource({ restartStream = false }: { restartStream?: boolean } = {}): void {
+function syncSelectedSource(): void {
   const selected = selectedNodeId ? nodeById.get(selectedNodeId) : null;
   if (selected && isEventPopupVisible()) {
-    openStream(selected, { restartStream });
+    openEventContext(selected, { skipStableRender: true });
   }
 }
 
-function openSyntheticStream(kind: string, title: string, body: string): void {
+function openSyntheticEventContext(kind: string, title: string, body: string): void {
   selectedNodeId = null;
+  eventContextRenderedSelection = null;
   clearRawModePayload();
   showEventPopup();
   syncInstanceColors();
@@ -7194,7 +7403,7 @@ function openSyntheticStream(kind: string, title: string, body: string): void {
   streamTitle.textContent = title;
   syncEventContextActions();
   renderStreamImages();
-  typeStream(body);
+  renderPlainEventContextBody(body);
 }
 
 function shortPath(path: string | null | undefined): string {
