@@ -438,8 +438,11 @@ async function openEventPopup(page) {
 
   const twoD = page.locator('[data-view-action="two-d"]');
   if ((await twoD.count()) > 0) {
-    await twoD.first().click({ force: true });
-    await page.waitForTimeout(300);
+    const twoDButton = twoD.first();
+    if ((await twoDButton.getAttribute("aria-pressed")) !== "true") {
+      await twoDButton.click({ force: true });
+      await page.waitForTimeout(300);
+    }
   }
 
   const canvas = page.locator("#space");
