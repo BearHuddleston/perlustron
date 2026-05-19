@@ -47,7 +47,11 @@ expect(app.includes('streamMinimize.addEventListener("click"'), "Frontend should
 expect(!app.includes("streamMinimize.textContent"), "Collapse control should keep its icon markup instead of replacing it with text.");
 expect(app.includes('streamCopyRef.addEventListener("click", copySelectedEventRef)'), "Copy Ref should use the safe evidence-reference helper.");
 expect(app.includes('openSelectedEventMode("timeline")') && app.includes('openSelectedEventMode("transcript")') && app.includes('openSelectedEventMode("raw")'), "Event Context actions should jump to Timeline/Transcript/Raw without reopening the overlay.");
-expect(app.includes("contextEventTitle.textContent = node.kind.toUpperCase();"), "Event context header should show the selected event kind.");
+expect(app.includes("contextEventTitle.textContent = eventContextKindLabel(node);"), "Event context header should show the selected event kind through display labels.");
+expect(app.includes("function eventContextKindLabel") && app.includes("function eventContextPositionLabel"), "Event Context should derive display labels through dedicated helpers.");
+expect(app.includes('return "subagent prompt";'), "Nested subagent prompt nodes should not render as a generic prompt label.");
+expect(app.includes("SUBAGENT TURN"), "Nested subagent events should not present their local event index as a top-level TURN.");
+expect(!app.includes("function subagentNickname"), "Subagent runtime nicknames should not drive Event Context titles.");
 expect(app.includes("function formatEventContextTitle"), "Event context should normalize Markdown heading syntax out of displayed titles.");
 expect(app.includes("title.replace(/^\\s{0,3}#{1,6}\\s+/"), "Event context title normalization should strip Markdown heading markers.");
 expect(app.includes("streamKind.title = title;"), "Event context title metadata should preserve the raw title as a tooltip.");
@@ -55,7 +59,7 @@ expect(app.includes('queryRequired<HTMLElement>("#stream-title-label")'), "Event
 expect(app.includes('eventPopup.classList.toggle("prompt-context", node.type === "prompt");'), "Prompt nodes should hide the prompt-derived title row.");
 expect(styles.includes(".event-popup.prompt-context .context-meta-title"), "Prompt nodes should not render a redundant prompt-title metadata row.");
 expect(/\.event-popup\.prompt-context\s+\.context-meta-title\s*\{[^}]*display:\s*none\s*;/m.test(styles), "Prompt context should hide the selected-title metadata row.");
-expect(app.includes('setEventContextTitle(node.type === "prompt" ? "" : node.title, "Selection");'), "Event context metadata should keep selected titles for non-prompt nodes.");
+expect(app.includes('setEventContextTitle(eventContextHeaderTitle(node), "Selection");'), "Event context metadata should keep selected display titles for non-prompt nodes.");
 expect(html.includes('<div id="stream-data"'), "Event context body should render into a generic container so prompt markdown can use real elements.");
 expect(!app.includes("streamTimer") && !app.includes("function typeStream"), "Event context should render selected records immediately instead of using a typewriter stream timer.");
 expect(app.includes("function openEventContext") && app.includes("function renderPlainEventContextBody"), "Event context should use static selection rendering helpers.");

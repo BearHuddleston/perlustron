@@ -628,6 +628,8 @@ interface SceneNodeBase<TSource> {
   freshUntil: number;
   position: THREE.Vector3;
   target: THREE.Vector3;
+  fileAxisX?: number;
+  fileAxisZ?: number;
   home?: THREE.Vector3;
   baseScale: number;
   scale: number;
@@ -835,6 +837,78 @@ function setEventContextTitle(title: string, label = "Selection"): void {
   streamKind.title = title;
 }
 
+function eventContextKindLabel(node: SceneNode): string {
+  if (node.type === "call") {
+    const subagentLabel = subagentEventLabel(node.source.name);
+    if (subagentLabel) {
+      return subagentLabel.toUpperCase();
+    }
+  }
+  return node.kind.replace(/[-_]+/g, " ").toUpperCase();
+}
+
+function eventContextHeaderTitle(node: SceneNode): string {
+  if (node.type === "prompt") {
+    return "";
+  }
+  return eventContextStreamTitle(node);
+}
+
+function eventContextStreamTitle(node: SceneNode): string {
+  if (node.type === "call") {
+    return subagentEventLabel(node.source.name) ?? node.title;
+  }
+  return node.title;
+}
+
+function eventContextPositionLabel(node: SceneNode): string {
+  if (node.type === "prompt") {
+    return `PROMPT ${node.promptIndex + 1}`;
+  }
+  if (node.type === "compaction") {
+    return `CHECKPOINT ${node.eventIndex}`;
+  }
+  if (node.type === "fileChange") {
+    return `FILE ${node.eventIndex}`;
+  }
+  if (node.type === "message") {
+    return `ASSISTANT ${node.eventIndex}`;
+  }
+  if (node.type === "call" && isNestedSubagentEventName(node.source.name)) {
+    return `SUBAGENT TURN ${node.eventIndex}`;
+  }
+  return `TURN ${node.eventIndex}`;
+}
+
+function subagentEventLabel(name: string): string | null {
+  if (name === "spawn_agent") {
+    return "subagent launch";
+  }
+  if (name === "subagent") {
+    return "subagent result";
+  }
+  if (name === "subagent.prompt") {
+    return "subagent prompt";
+  }
+  if (name === "subagent.message") {
+    return "subagent message";
+  }
+  if (name === "subagent.file") {
+    return "subagent file";
+  }
+  if (name === "subagent.compaction") {
+    return "subagent compaction";
+  }
+  if (name === "subagent.more") {
+    return "subagent overflow";
+  }
+  return null;
+}
+
+function isNestedSubagentEventName(name: string): boolean {
+  return name.startsWith("subagent.") && name !== "subagent";
+}
+
 function imagesForNode(node: SceneNode): ContentImageRef[] {
   return node.type === "prompt" ? node.source.images : [];
 }
@@ -952,7 +1026,33 @@ const OVERVIEW_FILE_Y_GAP = 1.15;
 const OVERVIEW_FILE_ROW_Y_GAP = 0;
 const OVERVIEW_FILE_CONNECTOR_DROP_Y = 1.05;
 const OVERVIEW_SUBAGENT_BAND_OFFSET_Z = 3.8;
-const OVERVIEW_SUBAGENT_DEPTH_Z = 5.8;
+const OVERVIEW_SUBAGENT_BRANCH_BASE_X = 9.2;
+const OVERVIEW_SUBAGENT_BRANCH_MAX_X = 22;
+const OVERVIEW_SUBAGENT_BRANCH_LANE_X_GAP = 6.4;
+const OVERVIEW_SUBAGENT_BRANCH_LANE_Z_GAP = 2.35;
+const OVERVIEW_SUBAGENT_BRANCH_SIDE_Y_GAP = 0.78;
+const OVERVIEW_SUBAGENT_BRANCH_LANE_Y_DROP = 0.36;
+const OVERVIEW_SUBAGENT_LEAD_IN_LAUNCH_INSET_X = 1.85;
+const OVERVIEW_SUBAGENT_LEAD_IN_RESULT_OFFSET_X = 2.15;
+const OVERVIEW_SUBAGENT_LEAD_IN_RESULT_DROP_Z = 4.15;
+const OVERVIEW_SUBAGENT_CHILD_START_DROP_Z = 2.1;
+const OVERVIEW_SUBAGENT_DEPTH_Z = OVERVIEW_SUBAGENT_LEAD_IN_RESULT_DROP_Z + OVERVIEW_SUBAGENT_CHILD_START_DROP_Z;
+const OVERVIEW_SUBAGENT_GROUP_DEPTH_Z = 3.8;
+const OVERVIEW_SUBAGENT_GROUP_ROW_DEPTH_Z = 0.74;
+const OVERVIEW_SUBAGENT_GROUP_SPINE_Z_STEP = 0.2;
+const OVERVIEW_SUBAGENT_GROUP_SPIRAL_RADIUS = 0.86;
+const OVERVIEW_SUBAGENT_GROUP_SPIRAL_RADIUS_GROWTH = 0.03;
+const OVERVIEW_SUBAGENT_GROUP_SPIRAL_MAX_RADIUS_GROWTH = 0.24;
+const OVERVIEW_SUBAGENT_GROUP_SPIRAL_ANGLE_STEP = OVERVIEW_SPIRAL_ANGLE_STEP;
+const OVERVIEW_SUBAGENT_GROUP_SPIRAL_OUTWARD_BIAS = 0.72;
+const OVERVIEW_SUBAGENT_GROUP_Y_STEP = 1.85;
+const OVERVIEW_SUBAGENT_GROUP_Y_WAVE = 0.1;
+const OVERVIEW_SUBAGENT_GROUPED_CALLS_PER_ROW = 5;
+const OVERVIEW_SUBAGENT_GROUPED_CALL_X_GAP = 0.78;
+const OVERVIEW_SUBAGENT_GROUPED_CALL_ROW_X_GAP = 0.44;
+const OVERVIEW_SUBAGENT_GROUPED_CALL_Z_GAP = 0.38;
+const OVERVIEW_SUBAGENT_GROUPED_CALL_Y_GAP = 0.1;
+const OVERVIEW_SUBAGENT_GROUPED_CALL_ROW_Y_GAP = 0.3;
 const OVERVIEW_ITEM_PADDING_Z = 2.4;
 const CAMERA_ZOOM_MIN_UNIT = 6.5;
 const CAMERA_ZOOM_DISTANCE_FACTOR = 0.16;
@@ -1844,6 +1944,9 @@ function collectMapMetricCounts(): MapMetricCounts {
   };
 
   nodes.forEach((node) => {
+    if (!nodeVisibleInCurrentMode(node)) {
+      return;
+    }
     if (node.type === "prompt") {
       counts.prompts += 1;
       return;
@@ -2194,6 +2297,14 @@ interface OverviewActivityAnchor {
   eventIndex: number;
 }
 
+interface FileLayoutAnchor {
+  id: string;
+  eventIndex: number;
+  target: THREE.Vector3;
+  fileAxisX?: number;
+  fileAxisZ?: number;
+}
+
 interface TranscriptEntry {
   label: string;
   title: string;
@@ -2359,10 +2470,14 @@ function overviewActivityConnector(
 }
 
 function groupedCallSlotZ(callIndex: number, callCount: number): number {
-  const row = Math.floor(callIndex / OVERVIEW_GROUPED_CALLS_PER_ROW);
-  const slot = callIndex % OVERVIEW_GROUPED_CALLS_PER_ROW;
-  const rowCount = Math.min(callCount - row * OVERVIEW_GROUPED_CALLS_PER_ROW, OVERVIEW_GROUPED_CALLS_PER_ROW);
-  return (slot - (rowCount - 1) / 2) * OVERVIEW_GROUPED_CALL_Z_GAP + row * 0.32;
+  return groupedSlotOffset(callIndex, callCount, OVERVIEW_GROUPED_CALLS_PER_ROW, OVERVIEW_GROUPED_CALL_Z_GAP, 0.32);
+}
+
+function groupedSlotOffset(itemIndex: number, itemCount: number, itemsPerRow: number, slotGap: number, rowOffset: number): number {
+  const row = Math.floor(itemIndex / itemsPerRow);
+  const slot = itemIndex % itemsPerRow;
+  const rowCount = Math.min(itemCount - row * itemsPerRow, itemsPerRow);
+  return (slot - (rowCount - 1) / 2) * slotGap + row * rowOffset;
 }
 
 function overviewFileDepth(fileRows: number): number {
@@ -2376,9 +2491,13 @@ function overviewSubagentDepth(subagentBranches: SubagentBranch[]): number {
   if (!subagentBranches.length) {
     return 0;
   }
-  const childDepth = subagentBranches.reduce((maxDepth, branch) => {
-    const groups = subagentChildGroups(branch.nodes);
-    return Math.max(maxDepth, groups.length * 3.0);
+  const childDepth = subagentBranches.reduce((maxDepth, branch, branchIndex) => {
+    const lane = Math.floor(branchIndex / 2);
+    const branchDepth = subagentChildGroups(branch.nodes).reduce(
+      (depth, group) => depth + subagentGroupDepth(group),
+      lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Z_GAP
+    );
+    return Math.max(maxDepth, branchDepth);
   }, 0);
   return OVERVIEW_SUBAGENT_BAND_OFFSET_Z + OVERVIEW_SUBAGENT_DEPTH_Z + childDepth;
 }
@@ -2387,17 +2506,22 @@ function outwardSide(target: THREE.Vector3): -1 | 1 {
   return target.x < 0 ? -1 : 1;
 }
 
-function overviewRadialFrame(target: THREE.Vector3, axisZ: number): {
+function overviewRadialFrame(
+  target: THREE.Vector3,
+  axisZ: number,
+  axisX = 0,
+  fallbackSide: -1 | 1 = outwardSide(target)
+): {
   radialX: number;
   radialZ: number;
   tangentX: number;
   tangentZ: number;
 } {
-  let radialX = target.x;
+  let radialX = target.x - axisX;
   let radialZ = target.z - axisZ;
   let length = Math.hypot(radialX, radialZ);
   if (length < 0.001) {
-    radialX = outwardSide(target);
+    radialX = fallbackSide;
     radialZ = 0;
     length = 1;
   }
@@ -2434,6 +2558,25 @@ function assistantParentId(call: CallNode, fallbackParentId: string, assistantMe
   return assistantMessageIds.has(messageId) ? messageId : fallbackParentId;
 }
 
+function latestAnchorAtOrBefore<T extends { eventIndex: number }>(
+  eventIndex: number | null | undefined,
+  anchors: T[],
+  fallback: T | null
+): T | null {
+  if (eventIndex == null) {
+    return fallback;
+  }
+  let selected = fallback;
+  let selectedEventIndex = Number.NEGATIVE_INFINITY;
+  anchors.forEach((anchor) => {
+    if (anchor.eventIndex <= eventIndex && anchor.eventIndex >= selectedEventIndex) {
+      selected = anchor;
+      selectedEventIndex = anchor.eventIndex;
+    }
+  });
+  return selected;
+}
+
 function activityAnchorIdForEvent(
   eventIndex: number | null | undefined,
   anchors: OverviewActivityAnchor[],
@@ -2442,25 +2585,14 @@ function activityAnchorIdForEvent(
   if (!anchors.length || eventIndex == null) {
     return anchors.at(-1)?.id ?? fallbackParentId;
   }
-
-  let selected = fallbackParentId;
-  let selectedEventIndex = Number.NEGATIVE_INFINITY;
-  anchors.forEach((anchor) => {
-    if (anchor.eventIndex <= eventIndex && anchor.eventIndex >= selectedEventIndex) {
-      selected = anchor.id;
-      selectedEventIndex = anchor.eventIndex;
-    }
-  });
-  return selected;
+  return latestAnchorAtOrBefore(eventIndex, anchors, null)?.id ?? fallbackParentId;
 }
 
-function overviewFileChangeTarget(
-  parentTarget: THREE.Vector3,
-  axisZ: number,
-  fileIndex: number,
-  fileCount: number
-): THREE.Vector3 {
-  const frame = overviewRadialFrame(parentTarget, axisZ);
+function overviewFileChangeTarget(parentNode: FileLayoutAnchor, axisZ: number, fileIndex: number, fileCount: number): THREE.Vector3 {
+  const parentTarget = parentNode.target;
+  const frameAxisX = parentNode.fileAxisX ?? 0;
+  const frameAxisZ = parentNode.fileAxisZ ?? axisZ;
+  const frame = overviewRadialFrame(parentTarget, frameAxisZ, frameAxisX, parentTarget.x < frameAxisX ? -1 : 1);
   const row = Math.floor(fileIndex / OVERVIEW_FILE_COLUMNS);
   const slot = fileIndex % OVERVIEW_FILE_COLUMNS;
   const rowCount = Math.min(fileCount - row * OVERVIEW_FILE_COLUMNS, OVERVIEW_FILE_COLUMNS);
@@ -2556,7 +2688,6 @@ function buildNodes(source: SessionGraph): BuiltScene {
     allNodes.push(promptNode);
     centerlineNodes.push(promptNode);
 
-    const promptCallIds = new Set(promptCalls.map((call) => call.id));
     const assistantMessageIds = new Set(prompt.assistantMessages.map((message) => message.id));
     const activityUnits = plan.activityUnits;
     const activityAnchors: OverviewActivityAnchor[] = [];
@@ -2609,10 +2740,18 @@ function buildNodes(source: SessionGraph): BuiltScene {
     subagentBranches.forEach((branch, branchIndex) => {
       const side = branchIndex % 2 === 0 ? 1 : -1;
       const lane = Math.floor(branchIndex / 2);
-      const branchX = side * Math.min(13.5, 4.8 + lane * 2.2);
-      const branchZ = promptZ - OVERVIEW_SUBAGENT_BAND_OFFSET_Z - lane * 0.55;
-      const resultZ = branchZ - 3.3;
-      const branchY = OVERVIEW_PROMPT_Y - 1.2 - (branchIndex % 2) * 0.28;
+      const branchX =
+        side *
+        Math.min(OVERVIEW_SUBAGENT_BRANCH_MAX_X, OVERVIEW_SUBAGENT_BRANCH_BASE_X + lane * OVERVIEW_SUBAGENT_BRANCH_LANE_X_GAP);
+      const branchZ = promptZ - OVERVIEW_SUBAGENT_BAND_OFFSET_Z - lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Z_GAP;
+      const resultZ = branchZ - OVERVIEW_SUBAGENT_LEAD_IN_RESULT_DROP_Z;
+      const branchY =
+        OVERVIEW_PROMPT_Y -
+        1.2 -
+        (branchIndex % 2) * OVERVIEW_SUBAGENT_BRANCH_SIDE_Y_GAP -
+        lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Y_DROP;
+      const launchX = branchX - side * OVERVIEW_SUBAGENT_LEAD_IN_LAUNCH_INSET_X;
+      const resultX = branchX + side * OVERVIEW_SUBAGENT_LEAD_IN_RESULT_OFFSET_X;
       const branchChildStart = callIndexCursor + subagentBranches.length * 2 + branchIndex * MAX_SUBAGENT_INSPECTION_NODES;
 
       if (branch.launch) {
@@ -2621,12 +2760,14 @@ function buildNodes(source: SessionGraph): BuiltScene {
           promptIndex,
           branch.launch,
           callIndexCursor,
-          new THREE.Vector3(branchX, branchY, branchZ),
+          new THREE.Vector3(launchX, branchY, branchZ),
           freshUntil,
           {
             kind: "subagent",
             title: subagentBranchTitle(branch.launch),
             baseScale: 0.52,
+            fileAxisX: branchX,
+            fileAxisZ: branchZ,
           }
         );
         allNodes.push(launchNode);
@@ -2640,12 +2781,14 @@ function buildNodes(source: SessionGraph): BuiltScene {
           promptIndex,
           branch.result,
           callIndexCursor,
-          new THREE.Vector3(branchX, branchY - 0.34, branch.launch ? resultZ : branchZ),
+          new THREE.Vector3(resultX, branchY - 0.34, branch.launch ? resultZ : branchZ),
           freshUntil,
           {
             kind: "subagent-result",
             title: subagentBranchTitle(branch.result),
             baseScale: 0.38,
+            fileAxisX: branchX,
+            fileAxisZ: branch.launch ? resultZ : branchZ,
           }
         );
         allNodes.push(resultNode);
@@ -2663,7 +2806,7 @@ function buildNodes(source: SessionGraph): BuiltScene {
         promptIndex,
         branchX,
         branchY,
-        startZ: (branch.result ? resultZ : branchZ) - 2.1,
+        startZ: (branch.result ? resultZ : branchZ) - OVERVIEW_SUBAGENT_CHILD_START_DROP_Z,
         callIndexStart: branchChildStart,
         freshUntil,
         allNodes,
@@ -2680,7 +2823,7 @@ function buildNodes(source: SessionGraph): BuiltScene {
     const fileChangesByParent = new Map<string, FileChangeNode[]>();
     fileChanges.forEach((change) => {
       const parentId =
-        change.callId && promptCallIds.has(change.callId) && promptNodesById.has(change.callId)
+        change.callId && promptNodesById.has(change.callId)
           ? change.callId
           : activityAnchorIdForEvent(change.eventIndex, activityAnchors, promptNode.id);
       fileParentIdByChangeId.set(change.id, parentId);
@@ -2697,7 +2840,7 @@ function buildNodes(source: SessionGraph): BuiltScene {
         0,
         siblingFileChanges.findIndex((sibling) => sibling.id === change.id)
       );
-      const target = overviewFileChangeTarget(parentNode.target, promptZ, siblingIndex, siblingFileChanges.length);
+      const target = overviewFileChangeTarget(parentNode, promptZ, siblingIndex, siblingFileChanges.length);
       const changeKind = `file-${normalizedFileChangeType(change)}`;
       const fileNode: FileChangeSceneNode = {
         id: change.id,
@@ -2764,37 +2907,67 @@ function addSubagentInspectionNodes({
 }): void {
   const groups = subagentChildGroups(branch.nodes);
   let trunkParentId = parentId;
+  let previousSpineUnitIndex: number | null = null;
+  let spineUnitIndex = 0;
   let childOffset = 0;
+  const baseZ = startZ;
 
-  groups.forEach((group, groupIndex) => {
-    const groupZ = startZ - groupIndex * 3.0;
-    let groupParentId = trunkParentId;
-
-    if (group.prompt) {
-      const promptNode = callSceneNode(
-        prompt,
-        promptIndex,
-        group.prompt,
-        callIndexStart + childOffset,
-        new THREE.Vector3(branchX, branchY - 0.9, groupZ),
-        freshUntil,
+  groups.forEach((group) => {
+    const units = subagentSpineUnits(group);
+    units.forEach((unit) => {
+      const currentSpineUnitIndex = spineUnitIndex;
+      const spineTarget = subagentGroupTarget(branchX, branchY, baseZ, currentSpineUnitIndex);
+      const spineAxisZ = subagentSpineAxisZ(baseZ, currentSpineUnitIndex);
+      let unitParentId = trunkParentId;
+      const fileAnchors: FileLayoutAnchor[] = [
         {
-          kind: "subagent",
-          title: subagentChildTitle(group.prompt),
-          baseScale: 0.30,
-        }
-      );
-      allNodes.push(promptNode);
-      allConnectors.push([trunkParentId, promptNode.id]);
-      trunkParentId = promptNode.id;
-      groupParentId = promptNode.id;
-      childOffset += 1;
-    }
+          id: unitParentId,
+          eventIndex: unit.spine?.eventIndex ?? Number.NEGATIVE_INFINITY,
+          target: spineTarget,
+          fileAxisX: branchX,
+          fileAxisZ: spineAxisZ,
+        },
+      ];
 
-    let sequenceParentId = groupParentId;
-    group.children.forEach((child, childIndex) => {
-      const childTarget = subagentChildTarget(branchX, branchY, groupZ, childIndex);
-      const childNode = callSceneNode(
+      if (unit.spine) {
+        const spineNode = callSceneNode(
+          prompt,
+          promptIndex,
+          unit.spine,
+          callIndexStart + childOffset,
+          spineTarget,
+          freshUntil,
+          {
+            kind: unit.spine.name === "subagent.prompt" ? "subagent" : unit.spine.kind,
+            title: subagentChildTitle(unit.spine),
+            baseScale: subagentChildScale(unit.spine),
+            fileAxisX: branchX,
+            fileAxisZ: spineAxisZ,
+          }
+        );
+        allNodes.push(spineNode);
+        allConnectors.push(
+          subagentSpineConnector(
+            trunkParentId,
+            spineNode.id,
+            branchX,
+            branchY,
+            baseZ,
+            previousSpineUnitIndex,
+            currentSpineUnitIndex
+          )
+        );
+        trunkParentId = spineNode.id;
+        previousSpineUnitIndex = currentSpineUnitIndex;
+        unitParentId = spineNode.id;
+        fileAnchors[0] = spineNode;
+        childOffset += 1;
+      }
+
+      const childFrame = overviewRadialFrame(spineTarget, spineAxisZ, branchX, branchX < 0 ? -1 : 1);
+      unit.children.forEach((child, childIndex) => {
+        const childTarget = subagentGroupedChildTarget(spineTarget, childFrame, childIndex, unit.children.length);
+        const childNode = callSceneNode(
           prompt,
           promptIndex,
           child,
@@ -2804,30 +2977,210 @@ function addSubagentInspectionNodes({
           {
             title: subagentChildTitle(child),
             baseScale: subagentChildScale(child),
+            fileAxisX: branchX,
+            fileAxisZ: spineAxisZ,
           }
-      );
-      allNodes.push(childNode);
-      allConnectors.push([sequenceParentId, childNode.id]);
-      sequenceParentId = childNode.id;
-      childOffset += 1;
+        );
+        allNodes.push(childNode);
+        allConnectors.push([unitParentId, childNode.id]);
+        fileAnchors.push(childNode);
+        childOffset += 1;
+      });
+
+      addSubagentFileNodes({
+        files: unit.files,
+        fileAnchors,
+        axisZ: spineAxisZ,
+        prompt,
+        promptIndex,
+        callIndexStart,
+        childOffset,
+        freshUntil,
+        allNodes,
+        allConnectors,
+      });
+      childOffset += unit.files.length;
+      spineUnitIndex += 1;
     });
   });
 }
 
-function subagentChildTarget(branchX: number, branchY: number, groupZ: number, childIndex: number): THREE.Vector3 {
-  const slot = childIndex % 8;
-  const row = Math.floor(childIndex / 8);
-  const side = slot % 2 === 0 ? -1 : 1;
-  const lane = Math.floor(slot / 2);
-  const x = branchX + side * (0.68 + lane * 0.42);
-  const y = branchY - 1.16 - row * 0.18 + (slot % 4) * 0.06;
-  const z = groupZ - 0.58 - row * 0.92 - Math.floor(slot / 2) * 0.18;
-  return new THREE.Vector3(x, y, z);
+function addSubagentFileNodes({
+  files,
+  fileAnchors,
+  axisZ,
+  prompt,
+  promptIndex,
+  callIndexStart,
+  childOffset,
+  freshUntil,
+  allNodes,
+  allConnectors,
+}: {
+  files: CallNode[];
+  fileAnchors: FileLayoutAnchor[];
+  axisZ: number;
+  prompt: PromptNode;
+  promptIndex: number;
+  callIndexStart: number;
+  childOffset: number;
+  freshUntil: number;
+  allNodes: SceneNode[];
+  allConnectors: Connector[];
+}): void {
+  const filesByParent = new Map<string, CallNode[]>();
+  const fileAssignments = files.map((file): { file: CallNode; parent: FileLayoutAnchor; siblingIndex: number } => {
+    const parent = subagentFileAnchorForEvent(file.eventIndex, fileAnchors);
+    const siblings = filesByParent.get(parent.id) ?? [];
+    const siblingIndex = siblings.length;
+    siblings.push(file);
+    filesByParent.set(parent.id, siblings);
+    return { file, parent, siblingIndex };
+  });
+
+  fileAssignments.forEach(({ file, parent, siblingIndex }, assignmentIndex) => {
+    const siblings = filesByParent.get(parent.id) ?? [file];
+    const fileTarget = overviewFileChangeTarget(parent, axisZ, siblingIndex, siblings.length);
+    const fileNode = callSceneNode(
+      prompt,
+      promptIndex,
+      file,
+      callIndexStart + childOffset + assignmentIndex,
+      fileTarget,
+      freshUntil,
+      {
+        title: file.argumentPreview || subagentChildTitle(file),
+        baseScale: subagentChildScale(file),
+        fileAxisX: parent.fileAxisX,
+        fileAxisZ: parent.fileAxisZ,
+      }
+    );
+    allNodes.push(fileNode);
+    allConnectors.push(overviewFileChangeConnector(parent.id, fileNode.id, parent.target));
+  });
+}
+
+function subagentGroupDepth(group: SubagentChildGroup): number {
+  return subagentSpineUnits(group).reduce((depth, unit) => {
+    const rows = Math.max(1, Math.ceil(unit.children.length / OVERVIEW_SUBAGENT_GROUPED_CALLS_PER_ROW));
+    return depth + OVERVIEW_SUBAGENT_GROUP_DEPTH_Z + Math.max(0, rows - 1) * OVERVIEW_SUBAGENT_GROUP_ROW_DEPTH_Z;
+  }, 0);
+}
+
+function subagentSpineUnits(group: SubagentChildGroup): SubagentSpineUnit[] {
+  const units: SubagentSpineUnit[] = [];
+  let current: SubagentSpineUnit | null = null;
+
+  if (group.prompt) {
+    current = { spine: group.prompt, children: [], files: [] };
+    units.push(current);
+  }
+
+  group.children.forEach((child) => {
+    if (isSubagentSpineChild(child)) {
+      current = { spine: child, children: [], files: [] };
+      units.push(current);
+      return;
+    }
+    if (!current) {
+      current = { spine: null, children: [], files: [] };
+      units.push(current);
+    }
+    if (isSubagentFileChild(child)) {
+      current.files.push(child);
+      return;
+    }
+    current.children.push(child);
+  });
+
+  return units.length ? units : [{ spine: null, children: [], files: [] }];
+}
+
+function isSubagentSpineChild(child: CallNode): boolean {
+  return child.name === "subagent.message" || child.name === "subagent.compaction" || child.name === "subagent.more";
+}
+
+function isSubagentFileChild(child: CallNode): boolean {
+  return child.name === "subagent.file";
+}
+
+function subagentFileAnchorForEvent(eventIndex: number | null | undefined, anchors: FileLayoutAnchor[]): FileLayoutAnchor {
+  return latestAnchorAtOrBefore(eventIndex, anchors, anchors[0]) ?? anchors[0];
+}
+
+function subagentSpineAxisZ(baseZ: number, unitIndex: number): number {
+  return baseZ - unitIndex * OVERVIEW_SUBAGENT_GROUP_SPINE_Z_STEP;
+}
+
+function subagentSpineConnector(
+  fromId: string,
+  toId: string,
+  branchX: number,
+  branchY: number,
+  baseZ: number,
+  fromUnitIndex: number | null,
+  toUnitIndex: number
+): Connector {
+  const startUnitIndex = fromUnitIndex ?? toUnitIndex - 0.85;
+  const waypointCount = 6;
+  const waypoints: THREE.Vector3[] = [];
+  for (let waypointIndex = 1; waypointIndex <= waypointCount; waypointIndex += 1) {
+    const progress = waypointIndex / (waypointCount + 1);
+    const interpolatedUnitIndex = startUnitIndex + (toUnitIndex - startUnitIndex) * progress;
+    waypoints.push(subagentGroupTarget(branchX, branchY, baseZ, interpolatedUnitIndex));
+  }
+  return { fromId, toId, waypoints };
+}
+
+function subagentGroupTarget(branchX: number, branchY: number, groupZ: number, groupIndex: number): THREE.Vector3 {
+  const side = branchX < 0 ? -1 : 1;
+  const angle = OVERVIEW_SPIRAL_ANGLE_START + groupIndex * OVERVIEW_SUBAGENT_GROUP_SPIRAL_ANGLE_STEP + side * 0.28;
+  const radius =
+    OVERVIEW_SUBAGENT_GROUP_SPIRAL_RADIUS +
+    Math.min(OVERVIEW_SUBAGENT_GROUP_SPIRAL_MAX_RADIUS_GROWTH, groupIndex * OVERVIEW_SUBAGENT_GROUP_SPIRAL_RADIUS_GROWTH);
+  return new THREE.Vector3(
+    branchX + side * OVERVIEW_SUBAGENT_GROUP_SPIRAL_OUTWARD_BIAS + Math.sin(angle) * radius * side,
+    branchY - 0.9 - groupIndex * OVERVIEW_SUBAGENT_GROUP_Y_STEP + Math.cos(angle) * OVERVIEW_SUBAGENT_GROUP_Y_WAVE,
+    subagentSpineAxisZ(groupZ, groupIndex) + Math.cos(angle) * radius
+  );
+}
+
+function subagentGroupedCallSlotZ(callIndex: number, callCount: number): number {
+  return groupedSlotOffset(
+    callIndex,
+    callCount,
+    OVERVIEW_SUBAGENT_GROUPED_CALLS_PER_ROW,
+    OVERVIEW_SUBAGENT_GROUPED_CALL_Z_GAP,
+    0.2
+  );
+}
+
+function subagentGroupedChildTarget(
+  groupTarget: THREE.Vector3,
+  frame: ReturnType<typeof overviewRadialFrame>,
+  childIndex: number,
+  childCount: number
+): THREE.Vector3 {
+  const tier = Math.floor(childIndex / OVERVIEW_SUBAGENT_GROUPED_CALLS_PER_ROW);
+  const slot = childIndex % OVERVIEW_SUBAGENT_GROUPED_CALLS_PER_ROW;
+  const tangentOffset = subagentGroupedCallSlotZ(childIndex, childCount);
+  const radialOffset = OVERVIEW_SUBAGENT_GROUPED_CALL_X_GAP + tier * OVERVIEW_SUBAGENT_GROUPED_CALL_ROW_X_GAP;
+  return new THREE.Vector3(
+    groupTarget.x + frame.radialX * radialOffset + frame.tangentX * tangentOffset,
+    groupTarget.y - 0.36 - slot * OVERVIEW_SUBAGENT_GROUPED_CALL_Y_GAP - tier * OVERVIEW_SUBAGENT_GROUPED_CALL_ROW_Y_GAP,
+    groupTarget.z + frame.radialZ * radialOffset + frame.tangentZ * tangentOffset
+  );
 }
 
 interface SubagentChildGroup {
   prompt: CallNode | null;
   children: CallNode[];
+}
+
+interface SubagentSpineUnit {
+  spine: CallNode | null;
+  children: CallNode[];
+  files: CallNode[];
 }
 
 function subagentChildGroups(children: CallNode[]): SubagentChildGroup[] {
@@ -2860,7 +3213,9 @@ function callSceneNode(
     kind = call.kind || "tool",
     title = call.name,
     baseScale = call.status === "completed" ? 0.30 : 0.40,
-  }: { kind?: string; title?: string; baseScale?: number } = {}
+    fileAxisX,
+    fileAxisZ,
+  }: { kind?: string; title?: string; baseScale?: number; fileAxisX?: number; fileAxisZ?: number } = {}
 ): CallSceneNode {
   const callIsNew = call.eventIndex > newEventFloor;
   return {
@@ -2879,6 +3234,8 @@ function callSceneNode(
     freshUntil: callIsNew ? freshUntil : 0,
     position: target.clone(),
     target,
+    fileAxisX,
+    fileAxisZ,
     baseScale,
     scale: baseScale,
   };
@@ -2989,30 +3346,13 @@ function subagentAgentId(call: CallNode): string | null {
 }
 
 function subagentBranchTitle(call: CallNode): string {
-  const nickname = subagentNickname(call);
-  if (nickname) {
-    return nickname;
-  }
-  return isSubagentResultCall(call) ? "subagent result" : "subagent";
-}
-
-function subagentNickname(call: CallNode): string | null {
-  const output = call.outputPreview;
-  if (!output) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(output) as { nickname?: unknown };
-    return typeof parsed.nickname === "string" && parsed.nickname.trim() ? parsed.nickname : null;
-  } catch {
-    return output.match(/"nickname"\s*:\s*"([^"]+)"/)?.[1] ?? null;
-  }
+  return subagentEventLabel(call.name) ?? (isSubagentResultCall(call) ? "subagent result" : "subagent launch");
 }
 
 function subagentChildTitle(call: CallNode): string {
-  if (call.name.startsWith("subagent.")) {
-    const title = call.name.slice("subagent.".length);
-    return title === "more" ? call.argumentPreview || "more" : title;
+  const subagentLabel = subagentEventLabel(call.name);
+  if (subagentLabel) {
+    return call.name === "subagent.more" && call.argumentPreview ? call.argumentPreview : subagentLabel;
   }
   return call.name;
 }
@@ -4436,6 +4776,11 @@ function updatePointer(event: MouseEvent | PointerEvent): void {
 }
 
 function pickNode(): SceneNode | null {
+  const nearest = nearestVisibleScreenNode();
+  if (nearest) {
+    return nearest;
+  }
+
   raycaster.setFromCamera(pointer, camera);
   const meshes: THREE.Object3D[] = Object.values(meshBuckets).filter((mesh): mesh is NodeInstancedMesh => Boolean(mesh));
   if (pointMesh) {
@@ -4458,7 +4803,7 @@ function pickNode(): SceneNode | null {
       }
     }
   }
-  return nearestVisibleScreenNode();
+  return null;
 }
 
 function nearestVisibleScreenNode(): SceneNode | null {
@@ -4525,21 +4870,12 @@ function openEventContext(
     showEventPopup();
   }
   syncInstanceColors();
-  contextEventTitle.textContent = node.kind.toUpperCase();
+  contextEventTitle.textContent = eventContextKindLabel(node);
   eventPopup.classList.toggle("prompt-context", node.type === "prompt");
-  setEventContextTitle(node.type === "prompt" ? "" : node.title, "Selection");
-  turnNumber.textContent =
-    node.type === "prompt"
-      ? `PROMPT ${node.promptIndex + 1}`
-      : node.type === "compaction"
-        ? `CHECKPOINT ${node.eventIndex}`
-        : node.type === "fileChange"
-          ? `FILE ${node.eventIndex}`
-          : node.type === "message"
-            ? `ASSISTANT ${node.eventIndex}`
-            : `TURN ${node.eventIndex}`;
+  setEventContextTitle(eventContextHeaderTitle(node), "Selection");
+  turnNumber.textContent = eventContextPositionLabel(node);
   setEventContextTimestamp(timestampForNode(node));
-  streamTitle.textContent = node.title;
+  streamTitle.textContent = eventContextStreamTitle(node);
   setRawModePayload(node.source);
   syncEventContextActions();
   renderStreamImages(imagesForNode(node));
@@ -4562,7 +4898,8 @@ function eventContextRenderSignature(node: SceneNode): string {
     node.kind,
     node.eventIndex,
     node.type === "prompt" ? node.promptIndex : "",
-    node.type === "prompt" ? "" : node.title,
+    eventContextHeaderTitle(node),
+    eventContextPositionLabel(node),
     timestampForNode(node),
     node.detail || node.body || node.title,
     images,
@@ -7313,7 +7650,9 @@ function nodeMatchesMetric(node: SceneNode, metric: Metric | null): boolean {
     return false;
   }
   if (node.type === "prompt") {
-    return (nodesByPromptId.get(node.id) || []).some((child) => child.id !== node.id && nodeMatchesMetric(child, metric));
+    return (nodesByPromptId.get(node.id) || []).some(
+      (child) => child.id !== node.id && nodeVisibleInCurrentMode(child) && nodeMatchesMetric(child, metric)
+    );
   }
   if (node.type === "fileChange") {
     return fileChangeMatchesMetric(node.source, metric);
