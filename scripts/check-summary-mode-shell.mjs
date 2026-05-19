@@ -182,6 +182,21 @@ expect(styles.includes(".metric-label") && styles.includes(".map-metrics button.
 expect(!styles.includes(".legend"), "Metric legend styling should be removed after moving filters into the map HUD.");
 expect(app.includes("function collectMapMetricCounts"), "Metric HUD counts should be derived from the rendered map node set.");
 expect(app.includes("metricPrompts.textContent = formatNumber(mapMetrics.prompts)"), "Metric HUD should show rendered prompt node count.");
+expect(!app.includes("overviewHidden"), "Overview should render subagent internals instead of collapsing them.");
+expect(
+  app.includes("function addSubagentInspectionNodes") &&
+    app.includes("allNodes.push(childNode)") &&
+    app.includes("allConnectors.push([unitParentId, childNode.id])"),
+  "Subagent inspection nodes should render visible children connected to their local spine parent."
+);
+expect(
+  app.includes("change.callId && promptNodesById.has(change.callId)") &&
+    app.includes("isSubagentFileChild") &&
+    app.includes("function addSubagentFileNodes") &&
+    app.includes("overviewFileChangeTarget(parent") &&
+    app.includes("overviewFileChangeConnector("),
+  "Subagent file changes should attach to rendered subagent nodes and use the prompt-style local file fan."
+);
 expect(!app.includes("metricErrors.textContent = `${ui.metricErrors}`"), "Metric HUD error count should not use stale session-summary metrics.");
 expect(app.includes("mesh.frustumCulled = false") && app.includes("lineMesh.frustumCulled = false") && app.includes("nextPointMesh.frustumCulled = false"), "Dynamic map layers should not disappear from coarse frustum culling while navigating.");
 expect(app.includes("function nodeVisibleInCurrentView"), "Map metric filtering should have an explicit node visibility predicate.");
@@ -192,6 +207,7 @@ expect(selectMetricBlock.length > 0, "selectMetric should remain discoverable fo
 expect(!selectMetricBlock.includes("enterInspectMode") && !app.includes("focusFirstMetricMatch"), "Metric clicks should filter the map in place instead of jumping into inspect mode.");
 const pickNodeBlock = app.match(/function pickNode[\s\S]*?\n}\n\nfunction setRawModePayload/)?.[0] ?? "";
 expect(pickNodeBlock.includes("nodeVisibleInCurrentView(node)"), "Map picking should ignore nodes hidden by metric filters.");
+expect(pickNodeBlock.includes("const nearest = nearestVisibleScreenNode();") && pickNodeBlock.indexOf("nearestVisibleScreenNode") < pickNodeBlock.indexOf("raycaster.setFromCamera"), "Map selection should prefer the nearest projected node before raycast depth so large prompt nodes do not steal subagent clicks.");
 expect(app.includes("function nearestVisibleScreenNode"), "Map picking should fall back to a visible screen-space node target when raycasting misses.");
 expect(app.includes("SCREEN_PICK_RADIUS_PX"), "Map screen-space picking should use a bounded click radius.");
 const nodeMatchesMetricBlock = app.match(/function nodeMatchesMetric[\s\S]*?\n}\n\nfunction fileChangeMatchesMetric/)?.[0] ?? "";
