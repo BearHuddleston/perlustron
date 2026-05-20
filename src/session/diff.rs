@@ -486,7 +486,6 @@ fn summarize_trace_side(
         })
         .collect::<Vec<_>>();
     longest_tool_calls.sort_by_key(|call| std::cmp::Reverse(call.duration_ms));
-    longest_tool_calls.truncate(8);
     let files_touched = diff_files_for_summary(graph, redacted, profile);
     let repeated_patterns = graph
         .insights
@@ -572,13 +571,13 @@ fn summarize_trace_side(
         prompt_preview: if redacted {
             None
         } else {
-            first_prompt.map(|text| compact_text(text, 220))
+            first_prompt.map(normalize_text)
         },
         prompt_hash: first_prompt.map(stable_hash_text),
         final_response_preview: if redacted {
             None
         } else {
-            final_response.map(|text| compact_text(text, 220))
+            final_response.map(normalize_text)
         },
         final_response_hash: final_response.map(stable_hash_text),
     }
@@ -977,7 +976,7 @@ fn divergence_event_summary(event: &NormalizedEvent) -> String {
     if !event.files.is_empty() {
         parts.push(event.files.join(","));
     }
-    compact_text(&parts.join(" "), 180)
+    normalize_text(&parts.join(" "))
 }
 
 fn normalized_event_is_error_like(event: &NormalizedEvent) -> bool {
@@ -1092,10 +1091,10 @@ fn render_diff_text(diff: &TraceDiff) -> String {
         diff.file_delta.only_right.len(),
         diff.file_delta.both.len()
     ));
-    for path in diff.file_delta.only_left.iter().take(8) {
+    for path in &diff.file_delta.only_left {
         out.push_str(&format!("    left-only: {path}\n"));
     }
-    for path in diff.file_delta.only_right.iter().take(8) {
+    for path in &diff.file_delta.only_right {
         out.push_str(&format!("    right-only: {path}\n"));
     }
     out.push_str("\nErrors and divergence\n");

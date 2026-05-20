@@ -290,7 +290,6 @@ fn build_inspection_queue(
                 .file_changes_after_first_error
                 .iter()
                 .map(|event| event.title.clone())
-                .take(8)
                 .collect(),
             related_tools: Vec::new(),
             redaction_safe_summary: format!(
@@ -300,7 +299,7 @@ fn build_inspection_queue(
             raw_available: true,
         });
     }
-    for call in suspicious_tool_calls.iter().take(4) {
+    for call in suspicious_tool_calls {
         queue.push(InspectionQueueItem {
             id: format!("suspicious-tool-{}", call.call.event_index),
             title: "Suspicious tool call".to_owned(),
@@ -323,7 +322,7 @@ fn build_inspection_queue(
             raw_available: true,
         });
     }
-    for pattern in repeated_patterns.iter().take(4) {
+    for pattern in repeated_patterns {
         let failed = pattern.severity == "warning" || pattern.key.to_ascii_lowercase().contains("error");
         queue.push(InspectionQueueItem {
             id: format!("repeated-{}-{}", pattern.pattern_type, pattern.first_line),
@@ -344,13 +343,11 @@ fn build_inspection_queue(
                 .linked_events
                 .iter()
                 .map(|event| event.id.clone())
-                .take(8)
                 .collect(),
             line_numbers: pattern
                 .linked_events
                 .iter()
                 .map(|event| event.line_number)
-                .take(8)
                 .collect(),
             related_files: if pattern.pattern_type == "file_activity" {
                 vec![pattern.key.clone()]
@@ -358,12 +355,7 @@ fn build_inspection_queue(
                 Vec::new()
             },
             related_tools: if pattern.pattern_type == "tool_call" {
-                pattern
-                    .examples
-                    .iter()
-                    .map(|example| compact_text(example, 80))
-                    .take(3)
-                    .collect()
+                pattern.examples.to_vec()
             } else {
                 Vec::new()
             },
@@ -374,29 +366,28 @@ fn build_inspection_queue(
             raw_available: !pattern.linked_events.is_empty(),
         });
     }
-    if let Some(note) = approval_friction.first() {
+    if !approval_friction.is_empty() {
+        let approval_events = approval_friction
+            .iter()
+            .flat_map(|note| note.linked_events.iter())
+            .collect::<Vec<_>>();
         queue.push(InspectionQueueItem {
             id: "approval-sandbox-friction".to_owned(),
             title: "Approval or sandbox friction".to_owned(),
             severity: "warning".to_owned(),
-            confidence: note.confidence.clone(),
+            confidence: "strong heuristic".to_owned(),
             directness: "strong heuristic".to_owned(),
-            summary: note.explanation.clone(),
+            summary: format!(
+                "{} approval/sandbox friction event(s)",
+                approval_friction.len()
+            ),
             explanation: "Logged text mentions approval, sandbox, permission, policy, or denied access.".to_owned(),
-            event_ids: note
-                .linked_events
-                .iter()
-                .map(|event| event.id.clone())
-                .collect(),
-            line_numbers: note
-                .linked_events
-                .iter()
-                .map(|event| event.line_number)
-                .collect(),
+            event_ids: approval_events.iter().map(|event| event.id.clone()).collect(),
+            line_numbers: approval_events.iter().map(|event| event.line_number).collect(),
             related_files: Vec::new(),
             related_tools: Vec::new(),
             redaction_safe_summary: "Approval or sandbox friction was logged.".to_owned(),
-            raw_available: !note.linked_events.is_empty(),
+            raw_available: !approval_events.is_empty(),
         });
     }
     if !context_pressure.high_context_markers.is_empty() || !context_pressure.compaction_markers.is_empty() {
@@ -418,14 +409,12 @@ fn build_inspection_queue(
                 .iter()
                 .chain(&context_pressure.compaction_markers)
                 .map(|event| event.id.clone())
-                .take(8)
                 .collect(),
             line_numbers: context_pressure
                 .high_context_markers
                 .iter()
                 .chain(&context_pressure.compaction_markers)
                 .map(|event| event.line_number)
-                .take(8)
                 .collect(),
             related_files: Vec::new(),
             related_tools: Vec::new(),
@@ -433,26 +422,41 @@ fn build_inspection_queue(
             raw_available: true,
         });
     }
-    if let Some(file) = file_impact.files_edited.first() {
+    let impacted_files = file_impact
+        .files_edited
+        .iter()
+        .chain(&file_impact.files_read)
+        .chain(&file_impact.files_referenced)
+        .collect::<Vec<_>>();
+    if !impacted_files.is_empty() {
         queue.push(InspectionQueueItem {
             id: "file-impact".to_owned(),
             title: "File impact".to_owned(),
             severity: "info".to_owned(),
-            confidence: if file.evidence.contains("direct") {
+            confidence: if file_impact
+                .files_edited
+                .iter()
+                .any(|file| file.evidence.contains("direct"))
+            {
                 "direct"
             } else {
                 "weak heuristic"
             }
             .to_owned(),
-            directness: file.evidence.clone(),
+            directness: "direct and inferred file activity".to_owned(),
             summary: format!(
-                "{} touched {} time(s), first line {}",
-                file.path, file.count, file.first_line
+                "{} edited / {} read / {} referenced file(s)",
+                file_impact.files_edited.len(),
+                file_impact.files_read.len(),
+                file_impact.files_referenced.len()
             ),
             explanation: "File impact combines direct file-change records and inferred paths from tool payloads.".to_owned(),
             event_ids: Vec::new(),
-            line_numbers: vec![file.first_line],
-            related_files: vec![file.path.clone()],
+            line_numbers: impacted_files.iter().map(|file| file.first_line).collect(),
+            related_files: impacted_files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect(),
             related_tools: Vec::new(),
             redaction_safe_summary: "File activity was logged or inferred.".to_owned(),
             raw_available: false,
@@ -475,7 +479,6 @@ fn build_inspection_queue(
                 .unknown_events
                 .iter()
                 .map(|event| format!("unknown-{}", event.event_index))
-                .take(8)
                 .collect(),
             line_numbers: graph
                 .parser_health
@@ -489,7 +492,6 @@ fn build_inspection_queue(
                         .iter()
                         .map(|line| line.line_number),
                 )
-                .take(8)
                 .collect(),
             related_files: Vec::new(),
             related_tools: Vec::new(),
@@ -497,7 +499,6 @@ fn build_inspection_queue(
             raw_available: true,
         });
     }
-    queue.truncate(12);
     queue
 }
 
@@ -522,7 +523,7 @@ fn flatten_graph_events(graph: &SessionGraph) -> Vec<FlatTraceEvent> {
                 line_number: message.event_index + 1,
                 event_index: message.event_index,
                 normalized_type: "assistant_message".to_owned(),
-                title: compact_text(&message.text, 120),
+                title: normalize_text(&message.text),
                 text: message.text.clone(),
                 tool_name: None,
                 status: None,
@@ -625,7 +626,6 @@ fn build_failure_chain(
     let related = events
         .iter()
         .skip(first_error_index.saturating_sub(2))
-        .take(5)
         .filter(|event| event.id != first_error.id)
         .map(insight_link_from_flat_event)
         .collect::<Vec<_>>();
@@ -645,11 +645,10 @@ fn build_failure_chain(
                     event
                         .tool_name
                         .as_deref()
-                        .map(|name| name == key)
+                .map(|name| name == key)
                         .unwrap_or(false)
                         || event.title == key
                 })
-                .take(6)
                 .map(insight_link_from_flat_event)
                 .collect::<Vec<_>>()
         })
@@ -657,7 +656,6 @@ fn build_failure_chain(
     let file_changes_after_first_error = file_observations
         .iter()
         .filter(|file| file.line_number > first_error.line_number && file.classification == "edited")
-        .take(8)
         .map(|file| InsightEventLink {
             id: format!("file-{}", file.event_index),
             line_number: file.line_number,
@@ -670,7 +668,7 @@ fn build_failure_chain(
         .iter()
         .rev()
         .find(|event| event.normalized_type == "assistant_message")
-        .map(|event| compact_text(&event.title, 180))
+        .map(|event| event.title.clone())
         .unwrap_or_else(|| "No final assistant message was logged after the first error-like event.".to_owned());
 
     FailureChainInsight {
@@ -720,16 +718,15 @@ fn detect_repeated_patterns(
                 },
                 confidence: "direct".to_owned(),
                 pattern_type: "tool_call".to_owned(),
-                key: compact_text(&key, 240),
+                key: normalize_text(&key),
                 count: group.len(),
                 first_line: first.line_number,
                 last_line: last.line_number,
                 examples: group
                     .iter()
-                    .take(3)
-                    .map(|event| compact_text(&event.title, 160))
+                    .map(|event| event.title.clone())
                     .collect(),
-                linked_events: group.iter().take(8).map(|event| insight_link_from_flat_event(event)).collect(),
+                linked_events: group.iter().map(|event| insight_link_from_flat_event(event)).collect(),
                 directness: "directly logged".to_owned(),
             })
         })
@@ -761,12 +758,10 @@ fn detect_repeated_patterns(
             last_line: last.line_number,
             examples: group
                 .iter()
-                .take(3)
                 .map(|file| format!("{} ({})", file.path, file.classification))
                 .collect(),
             linked_events: group
                 .iter()
-                .take(8)
                 .map(|file| InsightEventLink {
                     id: format!("file-{}", file.event_index),
                     line_number: file.line_number,
@@ -789,7 +784,6 @@ fn detect_repeated_patterns(
             .cmp(&left.count)
             .then_with(|| left.first_line.cmp(&right.first_line))
     });
-    repeated.truncate(24);
     repeated
 }
 
@@ -797,9 +791,6 @@ fn detect_suspicious_tool_calls(events: &[FlatTraceEvent]) -> Vec<SuspiciousTool
     let mut suspicious = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for event in events.iter().filter(|event| event.normalized_type == "tool_call") {
-        if suspicious.len() >= 32 {
-            break;
-        }
         if event_is_subagent_summary_tool(event) {
             continue;
         }
@@ -840,7 +831,7 @@ fn detect_suspicious_tool_calls(events: &[FlatTraceEvent]) -> Vec<SuspiciousTool
             tool_name: event.tool_name.clone().unwrap_or_else(|| "tool".to_owned()),
             status: event.status.clone().unwrap_or_else(|| "unknown".to_owned()),
             duration_ms: event.duration_ms,
-            output_preview: event.output_preview.as_deref().map(|output| compact_text(output, 360)),
+            output_preview: event.output_preview.as_deref().map(normalize_text),
         });
     }
     suspicious
@@ -852,7 +843,6 @@ fn analyze_context_pressure(graph: &SessionGraph) -> ContextPressureInsight {
         .samples
         .iter()
         .filter(|sample| sample.context_percent.unwrap_or_default() >= 80.0)
-        .take(12)
         .map(|sample| InsightEventLink {
             id: format!("token-{}", sample.event_index),
             line_number: sample.event_index + 1,
@@ -942,11 +932,6 @@ fn analyze_file_impact(
             .cmp(&left.count)
             .then_with(|| left.first_line.cmp(&right.first_line))
     });
-    edited.truncate(40);
-    read.truncate(40);
-    referenced.truncate(40);
-    repeated.truncate(20);
-
     let files_before_first_error = first_error_line
         .map(|line| unique_paths(observations.iter().filter(|file| file.line_number <= line)))
         .unwrap_or_default();
@@ -972,7 +957,6 @@ fn detect_approval_friction(events: &[FlatTraceEvent]) -> Vec<InsightNote> {
     events
         .iter()
         .filter(|event| event_mentions_approval_friction(event))
-        .take(20)
         .map(|event| InsightNote {
             title: "Approval or sandbox friction".to_owned(),
             severity: "warning".to_owned(),
@@ -1139,9 +1123,6 @@ fn unique_paths<'a>(observations: impl Iterator<Item = &'a FileObservation>) -> 
         if !paths.contains(&observation.path) {
             paths.push(observation.path.clone());
         }
-        if paths.len() >= 40 {
-            break;
-        }
     }
     paths
 }
@@ -1152,7 +1133,7 @@ fn insight_link_from_flat_event(event: &FlatTraceEvent) -> InsightEventLink {
         line_number: event.line_number,
         event_index: event.event_index,
         normalized_type: event.normalized_type.clone(),
-        title: compact_text(&event.title, 160),
+        title: normalize_text(&event.title),
     }
 }
 
@@ -1285,7 +1266,7 @@ fn normalized_repeat_key(text: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase();
-    compact_text(&collapsed, 220)
+    normalize_text(&collapsed)
 }
 
 fn stable_hash_text(text: &str) -> String {
@@ -1304,7 +1285,7 @@ fn render_insights_text(insights: &TraceInsights) -> String {
     if insights.inspection_queue.is_empty() {
         out.push_str("    - no high-priority findings detected\n");
     } else {
-        for item in insights.inspection_queue.iter().take(8) {
+        for item in &insights.inspection_queue {
             out.push_str(&format!(
                 "    - [{}] {}: {} ({})\n",
                 item.severity, item.title, item.summary, item.confidence
@@ -1335,7 +1316,7 @@ fn render_insights_text(insights: &TraceInsights) -> String {
         "  repeated patterns: {}\n",
         insights.repeated_patterns.len()
     ));
-    for pattern in insights.repeated_patterns.iter().take(8) {
+    for pattern in &insights.repeated_patterns {
         out.push_str(&format!(
             "    - {} x{} (lines {}-{})\n",
             pattern.title, pattern.count, pattern.first_line, pattern.last_line
@@ -1345,7 +1326,7 @@ fn render_insights_text(insights: &TraceInsights) -> String {
         "  suspicious tool calls: {}\n",
         insights.suspicious_tool_calls.len()
     ));
-    for call in insights.suspicious_tool_calls.iter().take(8) {
+    for call in &insights.suspicious_tool_calls {
         out.push_str(&format!(
             "    - line {} {}: {}\n",
             call.call.line_number, call.tool_name, call.reason

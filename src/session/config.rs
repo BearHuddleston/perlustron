@@ -176,18 +176,6 @@ fn list_session_options(
             .cmp(&left.last_modified_at)
             .then_with(|| left.label.cmp(&right.label))
     });
-    if sessions.len() > MAX_SESSION_LIST_ITEMS
-        && let Some(selected) = sessions
-            .iter()
-            .position(|session| same_file_path(Path::new(&session.path), &selected_path))
-    {
-        let selected_item = sessions.remove(selected);
-        sessions.truncate(MAX_SESSION_LIST_ITEMS.saturating_sub(1));
-        sessions.insert(0, selected_item);
-    } else if sessions.len() > MAX_SESSION_LIST_ITEMS {
-        sessions.truncate(MAX_SESSION_LIST_ITEMS);
-    }
-
     Ok(SessionListResponse {
         source: source.as_str().to_owned(),
         selected_path: selected_path.display().to_string(),

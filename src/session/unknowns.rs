@@ -91,8 +91,6 @@ fn build_unknowns_report_from_graph(
             ),
         }
     }));
-    redacted_samples.truncate(50);
-
     let suggested_fixture_name = suggested_fixture_name(source, &graph.parser_health);
     let suggested_github_issue = suggested_schema_drift_issue(
         source,
@@ -171,7 +169,7 @@ fn render_unknowns_text(report: &UnknownsReport) -> String {
     ));
     if !report.redacted_samples.is_empty() {
         out.push_str("  redacted samples:\n");
-        for sample in report.redacted_samples.iter().take(8) {
+        for sample in &report.redacted_samples {
             out.push_str(&format!(
                 "    - line {} {} shape {}\n",
                 sample.line_number, sample.source_event_type, sample.shape_hash
@@ -216,7 +214,7 @@ fn render_fixture_report_markdown(input: &Path, report: &UnknownsReport) -> Stri
     if report.redacted_samples.is_empty() {
         out.push_str("No unknown or malformed samples were captured.\n");
     } else {
-        for sample in report.redacted_samples.iter().take(12) {
+        for sample in &report.redacted_samples {
             out.push_str(&format!(
                 "### Line {} `{}`\n\nShape hash: `{}`\n\n```json\n{}\n```\n\n",
                 sample.line_number,
