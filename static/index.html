@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=148043245049507" />
+    <link rel="stylesheet" href="/styles.css?v=100346118387474" />
   </head>
   <body>
     <main id="app">
@@ -32,16 +32,21 @@
         </div>
       </header>
 
+      <section id="beta-banner" class="beta-banner" aria-label="Perlustron beta notice">
+        <strong>Beta</strong>
+        <span>Some views are experimental and may change. Verify important conclusions before sharing.</span>
+      </section>
+
       <nav id="mode-nav" class="mode-nav" aria-label="Perlustron modes">
-        <button class="active" type="button" data-app-mode="summary">Summary</button>
-        <button type="button" data-app-mode="map">Map</button>
-        <button type="button" data-app-mode="timeline">Timeline</button>
-        <button type="button" data-app-mode="transcript">Transcript</button>
-        <button type="button" data-app-mode="health">Health</button>
-        <button type="button" data-app-mode="insights">Insights</button>
-        <button type="button" data-app-mode="diff">Diff</button>
-        <button type="button" data-app-mode="raw">Raw</button>
-        <button type="button" data-app-mode="export">Export</button>
+        <button class="active" type="button" data-app-mode="summary" data-maturity="beta" data-status="Beta">Summary</button>
+        <button type="button" data-app-mode="map" data-maturity="beta" data-status="Beta">Map</button>
+        <button type="button" data-app-mode="timeline" data-maturity="beta" data-status="Beta">Timeline</button>
+        <button type="button" data-app-mode="transcript" data-maturity="beta" data-status="Beta">Transcript</button>
+        <button type="button" data-app-mode="health" data-maturity="advanced" data-status="Advanced">Health</button>
+        <button type="button" data-app-mode="insights" data-maturity="experimental" data-status="Experimental">Insights</button>
+        <button type="button" data-app-mode="diff" data-maturity="experimental" data-status="Experimental">Diff</button>
+        <button type="button" data-app-mode="raw" data-maturity="advanced" data-status="Advanced">Raw</button>
+        <button type="button" data-app-mode="export" data-maturity="advanced" data-status="Advanced">Export</button>
       </nav>
 
       <div id="workspace">
@@ -83,7 +88,10 @@
               <header>
                 <div>
                   <span id="mode-panel-kicker">Mode</span>
-                  <h2 id="mode-panel-title">Summary</h2>
+                  <div class="mode-title-row">
+                    <h2 id="mode-panel-title">Summary</h2>
+                    <span id="mode-panel-status" class="mode-status-label beta">Beta</span>
+                  </div>
                 </div>
                 <small id="mode-panel-summary">Waiting for session data</small>
               </header>
@@ -189,6 +197,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v148043245049507.js"></script>
+    <script type="module" src="/app-v100346118387474.js"></script>
   </body>
 </html>

@@ -20,6 +20,7 @@ const insightsButtonIndex = html.indexOf('data-app-mode="insights"');
 const diffButtonIndex = html.indexOf('data-app-mode="diff"');
 const rawButtonIndex = html.indexOf('data-app-mode="raw"');
 const exportButtonIndex = html.indexOf('data-app-mode="export"');
+const betaBannerIndex = html.indexOf('id="beta-banner"');
 const stageHeaderIndex = html.indexOf('class="stage-header"');
 const sourceSwitchIndex = html.indexOf('id="source-switch"');
 const sessionSelectIndex = html.indexOf('id="session-select"');
@@ -32,6 +33,7 @@ const metricFiltersIndex = html.indexOf('aria-label="Metric filters"');
 const mapLiveHudIndex = html.indexOf('class="map-live-hud"');
 
 expect(modeNavIndex >= 0, "Mode navigation should exist in static/index.html.");
+expect(betaBannerIndex > topActionsIndex && betaBannerIndex < modeNavIndex, "Beta banner should sit between the top bar and mode navigation.");
 expect(summaryButtonIndex > modeNavIndex, "Summary should be available as a primary mode button.");
 expect(mapButtonIndex > summaryButtonIndex, "Summary should lead the primary mode buttons without removing Map.");
 expect(timelineButtonIndex > mapButtonIndex, "Timeline button should remain after Map.");
@@ -59,6 +61,9 @@ expect(sceneFrameIndex > stageHeaderIndex, "Map scene frame should render below 
 expect(mapLiveHudIndex > sceneFrameIndex, "Map LIVE status should render inside the scene frame.");
 expect(metricFiltersIndex > mapLiveHudIndex, "Metric filters should move into the in-map LIVE HUD.");
 expect(!html.includes('class="legend"'), "Metric filters should not render as a full-width header legend.");
+expect(html.includes('data-maturity="beta"') && html.includes('data-maturity="experimental"') && html.includes('data-maturity="advanced"'), "Mode tabs should expose stable beta, experimental, and advanced maturity keys.");
+expect(html.includes('data-status="Beta"') && html.includes('data-status="Experimental"') && html.includes('data-status="Advanced"'), "Mode tabs should expose beta, experimental, and advanced maturity labels.");
+expect(html.includes('id="mode-panel-status"'), "Mode panel should show a per-page maturity label.");
 expect(html.includes('id="metric-prompts"'), "Map metric HUD should count rendered prompt nodes instead of showing an uncounted Turn label.");
 expect(/data-view-action="two-d"[^>]+aria-pressed="false"/.test(html), "2D view control should render as a toggle button with an initial pressed state.");
 expect(!html.includes('aria-label="Session metadata"'), "Session metadata should not be a sidebar card.");
@@ -81,11 +86,16 @@ expect(
 expect(app.includes('let activeAppMode: AppMode = normalizeAppMode(new URLSearchParams(window.location.search).get("mode"));'), "Initial mode should be parsed from ?mode= deep links.");
 expect(app.includes("function normalizeAppMode"), "Deep-link parsing should normalize app modes through a dedicated helper.");
 expect(/normalizeAppMode[\s\S]*:\s*"summary";/.test(app), "Summary should be the default landing mode when no ?mode= is provided.");
-expect(/<button class="active" type="button" data-app-mode="summary">Summary<\/button>/.test(html), "Static shell should mark Summary as the initial active primary mode.");
+expect(/<button class="active" type="button" data-app-mode="summary" data-maturity="beta" data-status="Beta">Summary<\/button>/.test(html), "Static shell should mark Summary as the initial active beta mode.");
 expect(app.includes('url.searchParams.set("mode", activeAppMode)'), "Visible URL should keep the current mode deep link.");
 expect(app.includes('url.searchParams.delete("token")'), "Visible URL synchronization should strip API tokens.");
 expect(!/searchParams\.set\("token",\s*localSessionToken\)/.test(app.slice(app.indexOf("function syncSessionUrl"), app.indexOf("function resetSessionViewState"))), "Visible URL synchronization must not re-add the API token.");
 expect(app.includes('case "summary":\n      renderSummaryModePanel();'), "Summary mode should render through renderSummaryModePanel.");
+expect(app.includes("type AppModeMaturity"), "Frontend should model per-mode maturity labels.");
+expect(app.includes("const APP_MODE_MATURITY"), "Frontend should keep runtime mode maturity labels in one typed map.");
+expect(app.includes("function appModeMaturity"), "Frontend should resolve beta, experimental, and advanced labels by mode.");
+expect(app.includes("function syncModePanelStatus"), "Frontend should sync the mode-panel maturity label.");
+expect(app.includes("button.dataset.maturity = status.maturity"), "Frontend should sync nav maturity keys from the typed map.");
 expect(app.includes("function renderSummaryModePanel"), "Summary mode should have a dedicated renderer.");
 expect(app.includes("graph.privacySummary"), "Summary renderer should display backend privacySummary facts.");
 expect(app.includes("graph.shareabilitySummary"), "Summary renderer should display backend shareabilitySummary facts.");
@@ -94,13 +104,24 @@ expect(app.includes("apiTokenRequired"), "Summary renderer should expose only to
 expect(app.includes('triage.className = "summary-triage"'), "Summary renderer should include the triage section row.");
 expect(app.includes('modeButton("Open Timeline"') && app.includes('modeButton("Open Export"'), "Summary triage sections should route to primary inspection and export flows.");
 expect(app.includes("function renderSummaryInsightQueue"), "Summary should render a dedicated top-insights queue.");
-expect(!/inspectionQueue\.slice\(0,\s*3\)/m.test(app), "Summary should render every queued Insight finding instead of capping the list.");
-expect(app.includes("const items = insights.inspectionQueue;"), "Summary Insights should use the full inspection queue.");
+expect(app.includes("const SUMMARY_INSPECTION_QUEUE_LIMIT = 5;"), "Summary should cap inspect-first findings at five.");
+expect(app.includes("insights.inspectionQueue.slice(0, SUMMARY_INSPECTION_QUEUE_LIMIT)"), "Summary Insights should render only the first capped inspection findings.");
 expect(app.includes("summary-insights"), "Summary top-insights queue should have stable CSS hooks.");
 expect(app.includes('modeButton("Timeline Evidence"') && app.includes('modeButton("Transcript Evidence"') && app.includes('modeButton("Raw Evidence"'), "Summary insights should expose Timeline, Transcript, and Raw evidence routing actions.");
 expect(app.includes("function openInsightEvidence"), "Summary evidence actions should route through an explicit insight evidence helper.");
 expect(app.includes("No event line is logged for this insight"), "Insight evidence routing should show a deterministic no-line fallback instead of silently failing.");
 expect(app.includes("showEvidenceFallback"), "Evidence fallbacks should update the Raw mode panel directly.");
+expect(app.includes("const INSIGHTS_PRIORITY_SIGNAL_LIMIT = 10;"), "Insights should cap primary priority signals.");
+expect(app.includes("function insightPriorityItems"), "Insights should derive a focused priority signal list.");
+expect(app.includes("function insightPriorityGroup"), "Insights should group repeated priority rows before rendering.");
+expect(app.includes("INSIGHT_TITLE_REPEATED_FILE_ACTIVITY"), "Insights should keep repeated file churn filtering behind a named title constant.");
+expect(app.includes("function renderFileChurnDetails"), "Insights should move repeated file activity into a separate file-churn section.");
+expect(app.includes("function suspiciousToolCallSummaryLines"), "Insights should summarize suspicious tool calls by reason.");
+expect(app.includes("function repeatedToolPatternSummaryLines"), "Insights should summarize repeated tool-call families.");
+expect(app.includes("function compactInsightText"), "Insights should truncate long final outcomes before rendering.");
+expect(app.includes('modeCard("How To Read This"'), "Insights should lead with plain-language heuristic guidance.");
+expect(app.includes('modeCard("Priority Signals"'), "Insights should rename the main queue to Priority Signals.");
+expect(app.includes('modeCard("Repeated Tool Patterns"'), "Insights should separate repeated tool patterns from file churn.");
 const focusEventByLineBlock = app.match(/function focusEventByLine[\s\S]*?\n}\n\nfunction parserHealthSummaryText/)?.[0] ?? "";
 expect(focusEventByLineBlock.length > 0, "focusEventByLine should remain discoverable for static evidence-routing checks.");
 expect(!focusEventByLineBlock.includes("openSyntheticStream"), "Evidence routing fallbacks must not reopen the floating Event Context panel outside Map mode.");
@@ -113,6 +134,8 @@ expect(summaryGrid.length > 0, "Summary shell should have CSS grid styling.");
 expect(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/.test(summaryGrid), "Summary shell grid should be responsive.");
 expect(styles.includes(".summary-fact"), "Summary facts should have dedicated section styling.");
 expect(styles.includes(".summary-triage") && /\.summary-triage\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/m.test(styles), "Summary triage sections should wrap responsively.");
+expect(styles.includes(".mode-details") && styles.includes(".mode-details summary"), "Insights file-churn disclosure should have dedicated styling.");
+expect(styles.includes(".beta-banner") && styles.includes(".mode-status-label"), "Beta banner and mode maturity labels should have dedicated styling.");
 const topActionButton = cssBlockFor(styles, ".top-actions button");
 const modeNav = cssBlockFor(styles, ".mode-nav");
 const modeNavButton = cssBlockFor(styles, ".mode-nav button");
@@ -136,6 +159,8 @@ expect(app.includes("const MAP_CAMERA_FAR = 12_000") && app.includes("new THREE.
 expect(app.includes("const MAP_GRID_SIZE = 12_000") && app.includes("new THREE.GridHelper(MAP_GRID_SIZE, MAP_GRID_DIVISIONS"), "Map grid should cover the increased render distance.");
 expect(!app.includes("requestPointerLock") && !app.includes("pointerlockchange"), "Map camera drag should avoid browser Pointer Lock prompts.");
 expect(app.includes("canvas.setPointerCapture(event.pointerId)"), "Map camera drag should use pointer capture for browser-compatible right-drag look.");
+expect(app.includes("function canFallbackPairSubagentResult"), "Subagent branch pairing should guard order fallback against stealing agent-specific results.");
+expect(app.includes("resultAgentIds"), "Subagent branch pairing should cache result agent ids before fallback matching.");
 expect(app.includes("const CAMERA_ZOOM_MIN_UNIT") && app.includes("const CAMERA_ZOOM_DISTANCE_FACTOR") && app.includes("function cameraZoomStepSize"), "Map zoom should scale its step size from camera distance to the floor.");
 expect(app.includes("cameraFloorViewDistance() * CAMERA_ZOOM_DISTANCE_FACTOR"), "Map zoom should speed up as the camera moves farther from the floor.");
 expect(app.includes("zoomCamera(-steps)") && app.includes("zoomCamera(1)") && app.includes("zoomCamera(-1)"), "Map wheel and button zoom controls should use shared zoom-step semantics.");
@@ -197,6 +222,26 @@ expect(
     app.includes("overviewFileChangeTarget(parent") &&
     app.includes("overviewFileChangeConnector("),
   "Subagent file changes should attach to rendered subagent nodes and use the prompt-style local file fan."
+);
+expect(
+  app.includes("function hasRenderableSubagentBranchContent") &&
+    app.includes(".filter(hasRenderableSubagentBranchContent)") &&
+    app.includes("return Boolean(branch.result || branch.nodes.length)"),
+  "Empty launch-only subagent calls should stay in the main activity path instead of consuming overview branch lanes."
+);
+expect(
+  app.includes("function overviewSubagentBranchDepth") &&
+    app.includes("function overviewSubagentBranchFrame") &&
+    app.includes("function overviewSubagentChildMinZ") &&
+    app.includes("function overviewSubagentFileMinZ") &&
+    !app.includes("OVERVIEW_SUBAGENT_GROUP_DEPTH_Z"),
+  "Subagent-heavy turns should reserve timeline space from rendered Z targets instead of a per-message depth estimate."
+);
+expect(
+  app.includes("interface SubagentFileAssignment") &&
+    app.includes("function subagentFileAssignments") &&
+    app.includes("subagentFileAssignments(files, fileAnchors).forEach"),
+  "Subagent file placement should share file-parent assignment logic between rendering and layout measurement."
 );
 expect(!app.includes("metricErrors.textContent = `${ui.metricErrors}`"), "Metric HUD error count should not use stale session-summary metrics.");
 expect(app.includes("mesh.frustumCulled = false") && app.includes("lineMesh.frustumCulled = false") && app.includes("nextPointMesh.frustumCulled = false"), "Dynamic map layers should not disappear from coarse frustum culling while navigating.");
