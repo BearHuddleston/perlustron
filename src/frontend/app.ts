@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 import * as THREE from "three";
+import { layout as layoutText, prepare as prepareText, type PreparedText } from "@chenglou/pretext";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
-  compactText,
   durationLabel,
   escapeHtml,
   formatBytes,
@@ -17,7 +17,6 @@ import {
 import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
 
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
-const MAX_SUBAGENT_INSPECTION_NODES = 72;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 type SessionSource = "codex" | "claude";
@@ -42,6 +41,25 @@ const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const 
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
 const METRICS = ["error", "long", "file", "diff", "artifact", "compaction"] as const satisfies readonly Metric[];
 const LONG_CALL_DURATION_MS = 30_000;
+const RAW_TEXT_LINE_HEIGHT = 18;
+const RAW_TEXT_FULL_RENDER_LINE_LIMIT = 3_000;
+const RAW_TEXT_OVERSCAN_LINES = 80;
+const VIRTUAL_LIST_OVERSCAN_PX = 900;
+const VIRTUAL_LIST_WIDTH_FALLBACK = 840;
+const TIMELINE_ROW_MIN_HEIGHT = 88;
+const TIMELINE_ROW_MAX_HEIGHT = 180;
+const TRANSCRIPT_TURN_ROW_HEIGHT = 56;
+const TRANSCRIPT_ENTRY_MIN_HEIGHT = 72;
+const TRANSCRIPT_TEXT_FONT = '13px "Segoe UI", Arial, sans-serif';
+const TRANSCRIPT_TITLE_FONT = '700 13px "Segoe UI", Arial, sans-serif';
+const TRANSCRIPT_TEXT_LINE_HEIGHT = 19;
+const TRANSCRIPT_TITLE_LINE_HEIGHT = 18;
+const TRANSCRIPT_ROW_LABEL_WIDTH = 84;
+const TRANSCRIPT_ROW_COLUMN_GAP = 12;
+const TRANSCRIPT_ROW_VERTICAL_PADDING = 16;
+const TRANSCRIPT_TEXT_HEIGHT_PAD = 4;
+const UI_TEXT_LINE_HEIGHT = 19;
+const UI_MONO_LINE_HEIGHT = 16;
 const VIEW_ACTIONS = ["zoom-in", "zoom-out", "two-d", "overview"] as const satisfies readonly ViewAction[];
 const METADATA_ICON_PATHS: Record<MetadataIcon, readonly string[]> = {
   codex: ["M4 7l5 5-5 5", "M12 17h8"],
@@ -1172,6 +1190,8 @@ let unknownsReportPromise: Promise<UnknownsReport | null> | null = null;
 let activeMetric: Metric | null = null;
 let searchTerm = "";
 let rawPayload: unknown = null;
+const virtualScrollTopByMode: Partial<Record<AppMode, number>> = {};
+const transcriptTextMeasureCache = new Map<string, TranscriptTextMeasureCacheEntry>();
 let isTailing = true;
 let liveEventsConnected = false;
 let sessionSwitchInProgress = false;
@@ -1618,6 +1638,10 @@ function resetSessionViewState(): void {
   selectedNodeId = null;
   activePromptId = null;
   rawPayload = null;
+  Object.keys(virtualScrollTopByMode).forEach((key) => {
+    delete virtualScrollTopByMode[key as AppMode];
+  });
+  transcriptTextMeasureCache.clear();
   mode = "overview";
   previousLatestEventIndex = null;
   lastStatusGraphChanged = false;
@@ -1864,7 +1888,7 @@ function applySessionStatus(status: SessionStatus, nextLiveCues: LiveTailCues): 
   stageStarted.textContent = recordMetricValue(status.lineCount, current.pendingBytes);
   renderContextPressure(tokenTelemetryWithLiveCue(current.tokenTelemetry, liveCues.latestTokenSample));
   updateLiveChrome();
-  renderActiveModePanel();
+  refreshEventContextTotals();
 }
 
 function setCompactionInProgress(next: boolean): boolean {
@@ -2312,6 +2336,42 @@ interface TranscriptEntry {
   eventIndex: number;
 }
 
+type TranscriptPanelRow =
+  | {
+      type: "turn";
+      prompt: PromptNode;
+      promptIndex: number;
+    }
+  | {
+      type: "entry";
+      entry: TranscriptEntry;
+    };
+
+interface VirtualListOptions<T> {
+  ariaLabel: string;
+  items: T[];
+  keyForItem: (item: T, index: number) => string;
+  estimateHeight: (item: T, index: number, viewportWidth: number) => number;
+  measureHeight?: (item: T, index: number, viewportWidth: number) => number;
+  renderItem: (item: T, index: number) => HTMLElement;
+}
+
+interface VirtualCleanupElement extends HTMLElement {
+  perlustronCleanup?: () => void;
+}
+
+interface TranscriptCachedText {
+  text: string;
+  font: string;
+  prepared: PreparedText;
+}
+
+interface TranscriptTextMeasureCacheEntry {
+  body?: TranscriptCachedText;
+  title?: TranscriptCachedText;
+  heights: Map<string, number>;
+}
+
 function promptActivityUnits(prompt: PromptNode, calls: CallNode[]): PromptActivityUnit[] {
   const messageIds = new Set(prompt.assistantMessages.map((message) => message.id));
   const callsByMessage = new Map<string, CallNode[]>();
@@ -2737,6 +2797,7 @@ function buildNodes(source: SessionGraph): BuiltScene {
       });
     });
 
+    let subagentChildIndexCursor = callIndexCursor + subagentBranches.length * 2;
     subagentBranches.forEach((branch, branchIndex) => {
       const side = branchIndex % 2 === 0 ? 1 : -1;
       const lane = Math.floor(branchIndex / 2);
@@ -2752,7 +2813,8 @@ function buildNodes(source: SessionGraph): BuiltScene {
         lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Y_DROP;
       const launchX = branchX - side * OVERVIEW_SUBAGENT_LEAD_IN_LAUNCH_INSET_X;
       const resultX = branchX + side * OVERVIEW_SUBAGENT_LEAD_IN_RESULT_OFFSET_X;
-      const branchChildStart = callIndexCursor + subagentBranches.length * 2 + branchIndex * MAX_SUBAGENT_INSPECTION_NODES;
+      const branchChildStart = subagentChildIndexCursor;
+      subagentChildIndexCursor += branch.nodes.length;
 
       if (branch.launch) {
         const launchNode = callSceneNode(
@@ -5463,8 +5525,8 @@ function resetEventContext(): void {
 }
 
 function refreshEventContextTotals(): void {
-  if (activeAppMode === "raw" && !rawPayload) {
-    renderRawModePanel();
+  if (activeAppMode === "raw") {
+    modePanelSummary.textContent = selectedNodeId ? "Selected event" : "Session graph";
   }
 }
 
@@ -5707,6 +5769,7 @@ function renderActiveModePanel(): void {
   if (activeAppMode === "map") {
     return;
   }
+  cleanupModePanelRender();
   modePanelKicker.textContent = sourceLabel(graph?.source ?? activeSource);
   modePanelTitle.textContent = appModeTitle(activeAppMode);
   modePanelFilters.classList.toggle("hidden", activeAppMode !== "timeline");
@@ -5887,7 +5950,7 @@ function summaryFact(title: string, facts: [string, string][]): HTMLElement {
 function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
   const card = modeCard("Inspect First");
   card.classList.add("summary-insights");
-  const items = insights.inspectionQueue.slice(0, 3);
+  const items = insights.inspectionQueue;
   if (!items.length) {
     card.append(
       modeParagraph("No high-priority findings detected. Parser health and raw inspection remain available for audit."),
@@ -5978,26 +6041,308 @@ function openInsightEvidence(item: InspectionQueueItem, destination: AppMode): v
   showEvidenceFallback(item.title, item, detail);
 }
 
+function cleanupModePanelRender(): void {
+  modePanelContent.querySelectorAll<HTMLElement>(".virtual-list-viewport, .virtual-text-viewport").forEach((element) => {
+    (element as VirtualCleanupElement).perlustronCleanup?.();
+  });
+  modePanelContent.classList.remove("virtual-mode-host");
+}
+
+function renderVirtualModePanel(main: HTMLElement, header?: HTMLElement): void {
+  cleanupModePanelRender();
+  modePanelContent.classList.add("virtual-mode-host");
+  const shell = document.createElement("div");
+  shell.className = "virtual-mode-panel";
+  if (header) {
+    shell.append(header);
+  }
+  shell.append(main);
+  modePanelContent.replaceChildren(shell);
+}
+
+function renderVirtualList<T>(options: VirtualListOptions<T>): HTMLElement {
+  const viewport = document.createElement("div");
+  viewport.className = "virtual-list-viewport";
+  viewport.tabIndex = 0;
+  viewport.setAttribute("role", "region");
+  viewport.setAttribute("aria-label", options.ariaLabel);
+
+  const canvas = document.createElement("div");
+  canvas.className = "virtual-list-canvas";
+  viewport.append(canvas);
+
+  const initialViewportWidth = Math.max(1, viewport.clientWidth || VIRTUAL_LIST_WIDTH_FALLBACK);
+  const heights = options.items.map((item, index) => Math.max(24, Math.ceil(options.estimateHeight(item, index, initialViewportWidth))));
+  const offsets = new Array<number>(options.items.length);
+  let totalHeight = 0;
+  const rebuildOffsets = (startIndex = 0) => {
+    const firstIndex = Math.max(0, startIndex);
+    totalHeight = firstIndex > 0 ? offsets[firstIndex] : 0;
+    for (let index = firstIndex; index < options.items.length; index += 1) {
+      offsets[index] = totalHeight;
+      totalHeight += heights[index];
+    }
+    canvas.style.height = `${Math.max(1, totalHeight)}px`;
+  };
+  rebuildOffsets();
+
+  let pendingFrame = 0;
+  let destroyed = false;
+  let resizeObserver: ResizeObserver | null = null;
+  const scrollKey = activeAppMode;
+
+  const firstVisibleIndex = (targetOffset: number): number => {
+    if (!options.items.length) {
+      return -1;
+    }
+    let low = 0;
+    let high = options.items.length - 1;
+    let result = options.items.length;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const itemBottom = offsets[mid] + heights[mid];
+      if (itemBottom >= targetOffset) {
+        result = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+    return Math.min(result, options.items.length - 1);
+  };
+
+  const lastVisibleIndex = (startIndex: number, endOffset: number): number => {
+    let endIndex = startIndex;
+    for (let index = startIndex; index < options.items.length; index += 1) {
+      if (offsets[index] > endOffset) {
+        break;
+      }
+      endIndex = index;
+    }
+    return endIndex;
+  };
+
+  const measureRenderedRange = (startIndex: number, endIndex: number): boolean => {
+    if (!options.measureHeight || startIndex < 0 || endIndex < startIndex) {
+      return false;
+    }
+    const viewportWidth = Math.max(1, viewport.clientWidth || initialViewportWidth);
+    const anchorIndex = firstVisibleIndex(viewport.scrollTop + 1);
+    const anchorOffset = anchorIndex >= 0 ? viewport.scrollTop - offsets[anchorIndex] : 0;
+    let firstChangedIndex = options.items.length;
+    for (let index = startIndex; index <= endIndex; index += 1) {
+      const nextHeight = Math.max(24, Math.ceil(options.measureHeight(options.items[index], index, viewportWidth)));
+      if (Math.abs(nextHeight - heights[index]) <= 1) {
+        continue;
+      }
+      heights[index] = nextHeight;
+      firstChangedIndex = Math.min(firstChangedIndex, index);
+    }
+    if (firstChangedIndex === options.items.length) {
+      return false;
+    }
+    rebuildOffsets(firstChangedIndex);
+    if (anchorIndex >= 0 && firstChangedIndex < anchorIndex) {
+      viewport.scrollTop = Math.max(0, offsets[anchorIndex] + anchorOffset);
+      virtualScrollTopByMode[scrollKey] = viewport.scrollTop;
+    }
+    return true;
+  };
+
+  const renderVisibleRows = () => {
+    pendingFrame = 0;
+    if (destroyed) {
+      return;
+    }
+    if (!options.items.length) {
+      canvas.replaceChildren();
+      canvas.style.height = "1px";
+      return;
+    }
+    const startOffset = Math.max(0, viewport.scrollTop - VIRTUAL_LIST_OVERSCAN_PX);
+    const endOffset = viewport.scrollTop + viewport.clientHeight + VIRTUAL_LIST_OVERSCAN_PX;
+    let startIndex = firstVisibleIndex(startOffset);
+    let endIndex = lastVisibleIndex(startIndex, endOffset);
+    if (measureRenderedRange(startIndex, endIndex)) {
+      startIndex = firstVisibleIndex(Math.max(0, viewport.scrollTop - VIRTUAL_LIST_OVERSCAN_PX));
+      endIndex = lastVisibleIndex(startIndex, viewport.scrollTop + viewport.clientHeight + VIRTUAL_LIST_OVERSCAN_PX);
+    }
+    const fragment = document.createDocumentFragment();
+    for (let index = startIndex; index <= endIndex; index += 1) {
+      const item = options.items[index];
+      const wrapper = document.createElement("div");
+      wrapper.className = "virtual-list-item";
+      wrapper.dataset.index = String(index);
+      wrapper.dataset.key = options.keyForItem(item, index);
+      wrapper.style.transform = `translateY(${offsets[index]}px)`;
+      wrapper.style.height = `${heights[index]}px`;
+      wrapper.append(options.renderItem(item, index));
+      fragment.append(wrapper);
+    }
+    canvas.replaceChildren(fragment);
+  };
+
+  const scheduleRender = () => {
+    if (destroyed) {
+      return;
+    }
+    if (!pendingFrame) {
+      pendingFrame = window.requestAnimationFrame(renderVisibleRows);
+    }
+  };
+
+  viewport.addEventListener(
+    "scroll",
+    () => {
+      virtualScrollTopByMode[scrollKey] = viewport.scrollTop;
+      scheduleRender();
+    },
+    { passive: true }
+  );
+  resizeObserver = new ResizeObserver(() => {
+    if (destroyed) {
+      return;
+    }
+    scheduleRender();
+  });
+  resizeObserver.observe(viewport);
+  (viewport as VirtualCleanupElement).perlustronCleanup = () => {
+    destroyed = true;
+    if (pendingFrame) {
+      window.cancelAnimationFrame(pendingFrame);
+    }
+    resizeObserver?.disconnect();
+  };
+  window.requestAnimationFrame(() => {
+    const savedScrollTop = virtualScrollTopByMode[scrollKey] ?? 0;
+    viewport.scrollTop = Math.min(savedScrollTop, Math.max(0, totalHeight - viewport.clientHeight));
+    renderVisibleRows();
+  });
+  return viewport;
+}
+
+function estimateTextLines(text: string, charsPerLine: number, maxLines: number): number {
+  const safeCharsPerLine = Math.max(8, charsPerLine);
+  let hardBreaks = 1;
+  let searchFrom = 0;
+  while (hardBreaks < maxLines) {
+    const nextBreak = text.indexOf("\n", searchFrom);
+    if (nextBreak === -1) {
+      break;
+    }
+    hardBreaks += 1;
+    searchFrom = nextBreak + 1;
+  }
+  const softLines = Math.ceil(Math.min(text.length, safeCharsPerLine * maxLines) / safeCharsPerLine);
+  return Math.min(maxLines, Math.max(1, hardBreaks, softLines));
+}
+
+function renderVirtualRawText(text: string): HTMLElement {
+  const lines = text.split(/\r?\n/);
+  const viewport = document.createElement("div");
+  viewport.className = "virtual-text-viewport";
+  viewport.tabIndex = 0;
+  viewport.setAttribute("role", "region");
+  viewport.setAttribute("aria-label", "Raw JSON payload");
+  viewport.style.setProperty("--raw-line-height", `${RAW_TEXT_LINE_HEIGHT}px`);
+  viewport.style.setProperty("--raw-gutter-width", `${Math.max(4, String(lines.length).length + 2)}ch`);
+
+  const canvas = document.createElement("div");
+  canvas.className = "virtual-text-canvas";
+  canvas.style.height = `${Math.max(1, lines.length * RAW_TEXT_LINE_HEIGHT)}px`;
+  viewport.append(canvas);
+
+  let pendingFrame = 0;
+  let destroyed = false;
+
+  const renderVisibleLines = () => {
+    pendingFrame = 0;
+    if (destroyed) {
+      return;
+    }
+    const renderAllLines = lines.length <= RAW_TEXT_FULL_RENDER_LINE_LIMIT;
+    const start = renderAllLines ? 0 : Math.max(0, Math.floor(viewport.scrollTop / RAW_TEXT_LINE_HEIGHT) - RAW_TEXT_OVERSCAN_LINES);
+    const end = renderAllLines
+      ? lines.length
+      : Math.min(lines.length, Math.ceil((viewport.scrollTop + viewport.clientHeight) / RAW_TEXT_LINE_HEIGHT) + RAW_TEXT_OVERSCAN_LINES);
+    const fragment = document.createDocumentFragment();
+    for (let index = start; index < end; index += 1) {
+      const row = document.createElement("div");
+      row.className = "virtual-text-row";
+      row.style.transform = `translateY(${index * RAW_TEXT_LINE_HEIGHT}px)`;
+      const lineNumber = document.createElement("span");
+      lineNumber.className = "virtual-text-line-number";
+      lineNumber.textContent = String(index + 1);
+      const lineText = document.createElement("span");
+      lineText.className = "virtual-text-line";
+      lineText.textContent = lines[index] || " ";
+      row.append(lineNumber, lineText);
+      fragment.append(row);
+    }
+    canvas.replaceChildren(fragment);
+  };
+
+  const scheduleRender = () => {
+    if (destroyed) {
+      return;
+    }
+    if (!pendingFrame) {
+      pendingFrame = window.requestAnimationFrame(renderVisibleLines);
+    }
+  };
+
+  viewport.addEventListener("scroll", scheduleRender, { passive: true });
+  (viewport as VirtualCleanupElement).perlustronCleanup = () => {
+    destroyed = true;
+    if (pendingFrame) {
+      window.cancelAnimationFrame(pendingFrame);
+    }
+  };
+  window.requestAnimationFrame(renderVisibleLines);
+  return viewport;
+}
+
+function stringifyRawPayload(payload: unknown): string {
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch (error) {
+    return JSON.stringify({ error: errorMessage(error) }, null, 2);
+  }
+}
+
+function renderRawPayload(payload: unknown, header?: HTMLElement): void {
+  renderVirtualModePanel(renderVirtualRawText(stringifyRawPayload(payload)), header);
+}
+
 function renderTimelineModePanel(): void {
   const rows = modeTimelineRows();
   populateTimelineFilterOptions(rows);
   const filtered = rows.filter(modeRowMatchesFilters);
-  const visible = filtered.slice(0, 600);
   modePanelSummary.textContent = `${filtered.length} of ${rows.length} events`;
-  if (!visible.length) {
+  if (!filtered.length) {
     modePanelContent.replaceChildren(modeEmpty("No timeline events match the current filters."));
     return;
   }
-  const fragment = document.createDocumentFragment();
   const actions = document.createElement("div");
   actions.className = "mode-actions";
   actions.append(modeButton("Copy Safe Reference", () => copySelectedSafeReference()));
-  fragment.append(actions);
-  visible.forEach((row) => fragment.append(renderModeRow(row)));
-  if (filtered.length > visible.length) {
-    fragment.append(modeEmpty(`${filtered.length - visible.length} additional events hidden; narrow filters or search to inspect them.`));
-  }
-  modePanelContent.replaceChildren(fragment);
+  renderVirtualModePanel(
+    renderVirtualList({
+      ariaLabel: "Timeline events",
+      items: filtered,
+      keyForItem: (row) => row.id,
+      estimateHeight: estimateTimelineRowHeight,
+      renderItem: (row) => renderModeRow(row),
+    }),
+    actions
+  );
+}
+
+function estimateTimelineRowHeight(row: ModeEventRow): number {
+  const titleHeight = estimateTextLines(row.title, 58, 3) * UI_TEXT_LINE_HEIGHT;
+  const detailHeight = estimateTextLines([row.filePath, row.detail].filter(Boolean).join(" - "), 110, 7) * UI_MONO_LINE_HEIGHT;
+  const timestampHeight = row.timestamp ? UI_MONO_LINE_HEIGHT * 2 : UI_MONO_LINE_HEIGHT;
+  return Math.min(TIMELINE_ROW_MAX_HEIGHT, Math.max(TIMELINE_ROW_MIN_HEIGHT, 28 + Math.max(timestampHeight, titleHeight, detailHeight)));
 }
 
 function modeTimelineRows(): ModeEventRow[] {
@@ -6167,7 +6512,7 @@ function renderModeRow(row: ModeEventRow): HTMLButtonElement {
   const title = document.createElement("strong");
   title.textContent = row.title;
   const detail = document.createElement("small");
-  detail.textContent = compactUiText([row.filePath, row.detail].filter(Boolean).join(" - "), 260);
+  detail.textContent = [row.filePath, row.detail].filter(Boolean).join(" - ");
   button.append(line, kind, title, detail);
   button.addEventListener("click", () => inspectModeRow(row));
   return button;
@@ -6201,19 +6546,143 @@ function inspectModeRow(row: ModeEventRow): void {
 
 function renderTranscriptModePanel(): void {
   const current = currentGraph();
-  modePanelSummary.textContent = `${current.prompts.length} turns`;
-  const fragment = document.createDocumentFragment();
+  const rows = transcriptPanelRows(current);
+  pruneTranscriptMeasureCache(rows);
+  modePanelSummary.textContent = `${current.prompts.length} turns / ${rows.filter((row) => row.type === "entry").length} entries`;
+  if (!rows.length) {
+    modePanelContent.replaceChildren(modeEmpty("No transcript events were parsed."));
+    return;
+  }
+  renderVirtualModePanel(
+    renderVirtualList({
+      ariaLabel: "Transcript entries",
+      items: rows,
+      keyForItem: transcriptPanelRowKey,
+      estimateHeight: estimateTranscriptRowHeight,
+      measureHeight: measureTranscriptRowHeight,
+      renderItem: renderTranscriptPanelRow,
+    })
+  );
+}
+
+function transcriptPanelRows(current: SessionGraph): TranscriptPanelRow[] {
+  const rows: TranscriptPanelRow[] = [];
   current.prompts.forEach((prompt, index) => {
-    const card = modeCard(`User ${index + 1}: ${prompt.title}`);
-    const flow = document.createElement("div");
-    flow.className = "transcript-flow";
-    transcriptEntriesForPrompt(prompt).forEach((entry) => {
-      flow.append(transcriptStep(entry));
-    });
-    card.append(flow);
-    fragment.append(card);
+    rows.push({ type: "turn", prompt, promptIndex: index });
+    transcriptEntriesForPrompt(prompt).forEach((entry) => rows.push({ type: "entry", entry }));
   });
-  modePanelContent.replaceChildren(fragment.childNodes.length ? fragment : modeEmpty("No transcript events were parsed."));
+  return rows;
+}
+
+function transcriptPanelRowKey(row: TranscriptPanelRow, index: number): string {
+  return row.type === "turn" ? `turn-${row.prompt.id}` : `entry-${row.entry.eventIndex}-${row.entry.label}-${index}`;
+}
+
+function estimateTranscriptRowHeight(row: TranscriptPanelRow, index: number, viewportWidth: number): number {
+  if (row.type === "turn") {
+    return TRANSCRIPT_TURN_ROW_HEIGHT;
+  }
+  const textWidth = transcriptTextWidth(viewportWidth);
+  const roughCharsPerLine = Math.max(36, Math.floor(textWidth / 7.2));
+  const titleHeight = estimateTextLines(row.entry.title, roughCharsPerLine, 4) * TRANSCRIPT_TITLE_LINE_HEIGHT;
+  const bodyHeight = estimateTextLines(row.entry.body, roughCharsPerLine, 18) * TRANSCRIPT_TEXT_LINE_HEIGHT;
+  return Math.max(TRANSCRIPT_ENTRY_MIN_HEIGHT, TRANSCRIPT_ROW_VERTICAL_PADDING + titleHeight + bodyHeight + TRANSCRIPT_TEXT_HEIGHT_PAD);
+}
+
+function measureTranscriptRowHeight(row: TranscriptPanelRow, index: number, viewportWidth: number): number {
+  if (row.type === "turn") {
+    return TRANSCRIPT_TURN_ROW_HEIGHT;
+  }
+  const rowKey = transcriptPanelRowKey(row, index);
+  const textWidth = transcriptTextWidth(viewportWidth);
+  const widthKey = Math.max(1, Math.round(textWidth));
+  const cache = transcriptTextMeasureCache.get(rowKey) ?? { heights: new Map<string, number>() };
+  transcriptTextMeasureCache.set(rowKey, cache);
+  if (
+    (cache.title && (cache.title.text !== row.entry.title || cache.title.font !== TRANSCRIPT_TITLE_FONT)) ||
+    (cache.body && (cache.body.text !== row.entry.body || cache.body.font !== TRANSCRIPT_TEXT_FONT))
+  ) {
+    cache.heights.clear();
+  }
+  const cached = cache.heights.get(String(widthKey));
+  if (cached !== undefined) {
+    return cached;
+  }
+  const titleHeight = measureTranscriptText(cache, "title", row.entry.title, TRANSCRIPT_TITLE_FONT, widthKey, TRANSCRIPT_TITLE_LINE_HEIGHT);
+  const bodyHeight = measureTranscriptText(cache, "body", row.entry.body, TRANSCRIPT_TEXT_FONT, widthKey, TRANSCRIPT_TEXT_LINE_HEIGHT);
+  const height = Math.max(
+    TRANSCRIPT_ENTRY_MIN_HEIGHT,
+    TRANSCRIPT_ROW_VERTICAL_PADDING + titleHeight + bodyHeight + TRANSCRIPT_TEXT_HEIGHT_PAD
+  );
+  cache.heights.set(String(widthKey), height);
+  return height;
+}
+
+function pruneTranscriptMeasureCache(rows: TranscriptPanelRow[]): void {
+  if (!transcriptTextMeasureCache.size) {
+    return;
+  }
+  const rowKeys = new Set<string>();
+  rows.forEach((row, index) => {
+    if (row.type === "entry") {
+      rowKeys.add(transcriptPanelRowKey(row, index));
+    }
+  });
+  for (const key of transcriptTextMeasureCache.keys()) {
+    if (!rowKeys.has(key)) {
+      transcriptTextMeasureCache.delete(key);
+    }
+  }
+}
+
+function transcriptTextWidth(viewportWidth: number): number {
+  return Math.max(80, viewportWidth - TRANSCRIPT_ROW_LABEL_WIDTH - TRANSCRIPT_ROW_COLUMN_GAP);
+}
+
+function measureTranscriptText(
+  cache: TranscriptTextMeasureCacheEntry,
+  part: "body" | "title",
+  text: string,
+  font: string,
+  width: number,
+  lineHeight: number
+): number {
+  if (!text) {
+    return 0;
+  }
+  const current = cache[part];
+  const prepared =
+    current && current.text === text && current.font === font
+      ? current.prepared
+      : prepareTranscriptText(cache, part, text, font);
+  const { lineCount } = layoutText(prepared, width, lineHeight);
+  return Math.max(1, lineCount) * lineHeight;
+}
+
+function prepareTranscriptText(
+  cache: TranscriptTextMeasureCacheEntry,
+  part: "body" | "title",
+  text: string,
+  font: string
+): PreparedText {
+  const prepared = prepareText(text, font, { whiteSpace: "pre-wrap" });
+  cache[part] = { text, font, prepared };
+  cache.heights.clear();
+  return prepared;
+}
+
+function renderTranscriptPanelRow(row: TranscriptPanelRow, index: number): HTMLElement {
+  if (row.type === "entry") {
+    return transcriptStep(row.entry);
+  }
+  const section = document.createElement("section");
+  section.className = "transcript-turn-row";
+  const label = document.createElement("small");
+  label.textContent = `User ${row.promptIndex + 1}`;
+  const title = document.createElement("strong");
+  title.textContent = row.prompt.title;
+  section.append(label, title);
+  return section;
 }
 
 function transcriptEntriesForPrompt(prompt: PromptNode): TranscriptEntry[] {
@@ -6259,7 +6728,7 @@ function transcriptStep(entry: TranscriptEntry): HTMLElement {
   const content = document.createElement("div");
   const heading = document.createElement("strong");
   heading.textContent = entry.title;
-  const paragraph = modeParagraph(compactUiText(entry.body, 520));
+  const paragraph = modeParagraph(entry.body);
   content.append(heading, paragraph);
   row.append(badge, content);
   return row;
@@ -6345,8 +6814,8 @@ function renderInsightsModePanel(): void {
           ]
         : ["No logged error-like event detected."]
     ),
-    modeCard("Repeated Patterns", insights.repeatedPatterns.slice(0, 8).map((pattern) => `${pattern.patternType} x${pattern.count} lines ${pattern.firstLine}-${pattern.lastLine}: ${pattern.key}`)),
-    modeCard("Suspicious Tool Calls", insights.suspiciousToolCalls.slice(0, 8).map((call) => `Line ${call.call.lineNumber} ${call.toolName}: ${call.reason}`)),
+    modeCard("Repeated Patterns", insights.repeatedPatterns.map((pattern) => `${pattern.patternType} x${pattern.count} lines ${pattern.firstLine}-${pattern.lastLine}: ${pattern.key}`)),
+    modeCard("Suspicious Tool Calls", insights.suspiciousToolCalls.map((call) => `Line ${call.call.lineNumber} ${call.toolName}: ${call.reason}`)),
     modeCard("Context Pressure", [
       insights.contextPressure.status,
       insights.contextPressure.explanation,
@@ -6357,9 +6826,9 @@ function renderInsightsModePanel(): void {
       `Edited: ${insights.fileImpact.filesEdited.length}`,
       `Read: ${insights.fileImpact.filesRead.length}`,
       `Referenced: ${insights.fileImpact.filesReferenced.length}`,
-      ...insights.fileImpact.filesEdited.slice(0, 6).map((file) => `${file.path} (${file.count})`),
+      ...insights.fileImpact.filesEdited.map((file) => `${file.path} (${file.count})`),
     ]),
-    modeCard("Approval And Sandbox", insights.approvalFriction.slice(0, 8).map((note) => `${note.severity}: ${note.title}`))
+    modeCard("Approval And Sandbox", insights.approvalFriction.map((note) => `${note.severity}: ${note.title}`))
   );
   fragment.append(grid);
   modePanelContent.replaceChildren(fragment);
@@ -6506,9 +6975,7 @@ function renderRawModePanel(): void {
   const current = currentGraph();
   modePanelSummary.textContent = selectedNodeId ? "Selected event" : "Session graph";
   const payload = rawPayload ?? (selectedNodeId ? nodeById.get(selectedNodeId)?.source : current);
-  const pre = document.createElement("pre");
-  pre.textContent = JSON.stringify(payload ?? current.totals, null, 2);
-  modePanelContent.replaceChildren(pre);
+  renderRawPayload(payload ?? current.totals);
 }
 
 function renderExportModePanel(): void {
@@ -6615,7 +7082,7 @@ function renderInspectionQueue(insights: TraceInsights): HTMLElement {
   }
   const list = document.createElement("div");
   list.className = "mode-linked-list";
-  insights.inspectionQueue.slice(0, 12).forEach((item, index) => {
+  insights.inspectionQueue.forEach((item, index) => {
     const row = document.createElement("article");
     row.className = `mode-linked-row severity-${item.severity}`;
     const body = document.createElement("div");
@@ -6695,7 +7162,7 @@ function renderUnknownSamples(health: ParserHealth): HTMLElement {
     const title = document.createElement("strong");
     title.textContent = sample.title;
     const detail = document.createElement("small");
-    detail.textContent = `line ${sample.lineNumber} - ${compactUiText(sample.detail, 180)}`;
+    detail.textContent = `line ${sample.lineNumber} - ${sample.detail}`;
     body.append(title, detail);
     const actions = document.createElement("div");
     actions.className = "mode-row-actions";
@@ -6827,11 +7294,10 @@ function showEvidenceFallback(title: string, payload: unknown, detail: string): 
   );
   card.append(actions);
   if (activeAppMode === "raw") {
-    const pre = document.createElement("pre");
-    pre.textContent = JSON.stringify(payload ?? {}, null, 2);
-    modePanelContent.replaceChildren(card, pre);
+    renderRawPayload(payload ?? {}, card);
     return;
   }
+  cleanupModePanelRender();
   modePanelContent.prepend(card);
 }
 
@@ -6875,7 +7341,7 @@ function insightSummaryText(insights: TraceInsights): string {
   if (!insights.inspectionQueue.length) {
     lines.push("- No high-priority findings detected.");
   } else {
-    insights.inspectionQueue.slice(0, 6).forEach((item, index) => {
+    insights.inspectionQueue.forEach((item, index) => {
       lines.push(`${index + 1}. [${item.severity}] ${item.title}: ${item.redactionSafeSummary || item.summary}`);
     });
   }
@@ -7080,20 +7546,13 @@ function transcriptModeText(): string {
     return "Waiting for session data.";
   }
   const lines: string[] = [];
-  graph.prompts.slice(0, 12).forEach((prompt, index) => {
+  graph.prompts.forEach((prompt, index) => {
     lines.push(`User ${index + 1}: ${prompt.title}`);
     const entries = transcriptEntriesForPrompt(prompt).filter((entry) => entry.label !== "Prompt");
-    entries.slice(0, 10).forEach((entry) => {
-      lines.push(`  ${entry.label}: ${entry.title} - ${compactUiText(entry.body, 220)}`);
+    entries.forEach((entry) => {
+      lines.push(`  ${entry.label}: ${entry.title} - ${entry.body}`);
     });
-    const hiddenEntries = entries.length - 10;
-    if (hiddenEntries > 0) {
-      lines.push(`  ...[${hiddenEntries} additional transcript entries summarized]`);
-    }
   });
-  if (graph.prompts.length > 12) {
-    lines.push(`...[${graph.prompts.length - 12} additional prompts summarized]`);
-  }
   return lines.join("\n") || "No transcript events were parsed.";
 }
 
@@ -7121,11 +7580,11 @@ function insightsModeText(): string {
     lines.push("First logged error-like event: none detected");
   }
   lines.push(`Repeated patterns: ${insights.repeatedPatterns.length}`);
-  insights.repeatedPatterns.slice(0, 6).forEach((pattern) => {
+  insights.repeatedPatterns.forEach((pattern) => {
     lines.push(`  ${pattern.patternType} x${pattern.count} lines ${pattern.firstLine}-${pattern.lastLine}: ${pattern.key}`);
   });
   lines.push(`Suspicious tool calls: ${insights.suspiciousToolCalls.length}`);
-  insights.suspiciousToolCalls.slice(0, 6).forEach((call) => {
+  insights.suspiciousToolCalls.forEach((call) => {
     lines.push(`  line ${call.call.lineNumber} ${call.toolName}: ${call.reason}`);
   });
   lines.push(`Context pressure: ${insights.contextPressure.status}`);
@@ -7174,10 +7633,6 @@ function shortcutsText(): string {
     "e export",
     "Esc close inspection",
   ].join("\n");
-}
-
-function compactUiText(text: string, maxChars: number): string {
-  return compactText(text, maxChars, "\n...[truncated]");
 }
 
 function contextPressureSummary(telemetry: TokenTelemetry | undefined): string {
