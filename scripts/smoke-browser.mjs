@@ -325,7 +325,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
     (await fetchJson(`${server.baseUrl}/api/session?token=${encodeURIComponent(server.token)}`))?.insights?.inspectionQueue?.length ?? 0;
   const summaryInsights = await page.evaluate((queued) => {
     return {
-      rows: document.querySelectorAll(".summary-insights .summary-insight").length,
+      rows: document.querySelectorAll(".summary-insights .mode-linked-row").length,
       queued,
       hasRawEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
         (button) => button.textContent?.trim() === "Raw Evidence"
@@ -338,7 +338,11 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
       ),
     };
   }, expectedQueuedCount);
-  assert(summaryInsights.rows > 0 && summaryInsights.rows === summaryInsights.queued, "Summary should expose every queued Insight finding");
+  const expectedVisibleRows = Math.min(summaryInsights.queued, 5);
+  assert(
+    summaryInsights.rows > 0 && summaryInsights.rows === expectedVisibleRows,
+    "Summary should expose only the first five queued Insight findings"
+  );
   assert(summaryInsights.hasRawEvidence, "Summary should expose a Raw Evidence CTA");
   assert(summaryInsights.hasTimelineEvidence, "Summary should expose a Timeline Evidence CTA");
   assert(summaryInsights.hasTranscriptEvidence, "Summary should expose a Transcript Evidence CTA");
@@ -410,6 +414,59 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   }
 }
 
+async function assertInsightsPrioritizeSignals(page, server) {
+  await page.goto(`${server.baseUrl}/?mode=insights&token=${encodeURIComponent(server.token)}`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !window.location.search.includes("token="), null, { timeout: UI_TIMEOUT_MS });
+  await waitForLoadedDemo(page);
+  await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Insights", null, {
+    timeout: UI_TIMEOUT_MS,
+  });
+
+  const insightData = (await fetchJson(`${server.baseUrl}/api/session?token=${encodeURIComponent(server.token)}`))?.insights;
+  const prioritySignals = (insightData?.inspectionQueue || []).filter(
+    (item) => item.title !== "Repeated file activity" && (item.severity === "high" || item.severity === "warning")
+  );
+  const fallbackSignals = (insightData?.inspectionQueue || []).filter((item) => item.title !== "Repeated file activity");
+  const priorityGroups = new Set((prioritySignals.length ? prioritySignals : fallbackSignals).map((item) => item.title));
+  const expectedPriorityRows = Math.min(priorityGroups.size, 10);
+  const fileChurnCount = (insightData?.repeatedPatterns || []).filter((pattern) => pattern.patternType === "file_activity").length;
+
+  const insights = await page.evaluate(() => {
+    const priorityText = Array.from(document.querySelectorAll(".mode-linked-row strong")).map((node) => node.textContent?.trim() || "");
+    const suspiciousCard = Array.from(document.querySelectorAll("#mode-panel-content .mode-card")).find(
+      (card) => card.querySelector("h3")?.textContent?.trim() === "Suspicious Tool Calls"
+    );
+    return {
+      summary: document.querySelector("#mode-panel-summary")?.textContent?.trim() || "",
+      cardHeadings: Array.from(document.querySelectorAll("#mode-panel-content .mode-card h3")).map((node) => node.textContent?.trim() || ""),
+      priorityRows: document.querySelectorAll(".mode-linked-row").length,
+      priorityText,
+      suspiciousText: suspiciousCard?.textContent || "",
+      fileChurnExists: Boolean(document.querySelector(".file-churn-details")),
+      fileChurnOpen: document.querySelector(".file-churn-details")?.hasAttribute("open") || false,
+      fileChurnSummary: document.querySelector(".file-churn-details summary")?.textContent?.trim() || "",
+      panelText: document.querySelector("#mode-panel-content")?.textContent || "",
+    };
+  });
+
+  assert(insights.summary.includes("priority signal groups"), "Insights summary should use grouped priority signal wording");
+  assert(insights.summary.includes("file-churn patterns"), "Insights summary should separate file churn from priority signals");
+  assert(insights.cardHeadings.includes("How To Read This"), "Insights should start with heuristic guidance");
+  assert(insights.cardHeadings.includes("Priority Signals"), "Insights should rename the main queue to Priority Signals");
+  assert(insights.cardHeadings.includes("Repeated Tool Patterns"), "Insights should separate repeated tool patterns from file churn");
+  assert(insights.priorityRows === expectedPriorityRows, "Insights should cap the priority signal list");
+  assert(!insights.priorityText.some((text) => text.includes("Repeated file activity")), "Priority Signals should not include repeated file activity rows");
+  assert(new Set(insights.priorityText.map((text) => text.replace(/^\d+\.\s*/, "").replace(/\s+\(\d[\d,]*\)$/, ""))).size === insights.priorityText.length, "Priority Signals should not repeat the same signal category");
+  assert(!/\bLine \d+/.test(insights.suspiciousText), "Suspicious Tool Calls should summarize reasons instead of repeating individual priority rows");
+  assert(insights.fileChurnExists === fileChurnCount > 0, "Insights should expose file churn only when repeated file patterns exist");
+  assert(!insights.fileChurnOpen, "File Churn should be collapsed by default");
+  if (fileChurnCount > 0) {
+    assert(insights.fileChurnSummary.includes("File Churn"), "Collapsed file churn section should be clearly labeled");
+  }
+  assert(insights.panelText.includes("leads, not root cause"), "Insights should explain that signals are not root-cause verdicts");
+  assert(insights.panelText.includes("grouped"), "Insights should explain that repeated rows are grouped");
+}
+
 async function assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server) {
   await page.goto(`${server.baseUrl}/?mode=summary&token=${encodeURIComponent(server.token)}`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => !window.location.search.includes("token="), null, { timeout: UI_TIMEOUT_MS });
@@ -426,6 +483,7 @@ async function assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server) 
     settingsButtonActive: document.querySelector("#settings-button")?.classList.contains("active"),
     panelHidden: document.querySelector("#mode-panel")?.classList.contains("hidden"),
     panelTitle: document.querySelector("#mode-panel-title")?.textContent?.trim(),
+    panelStatus: document.querySelector("#mode-panel-status")?.textContent?.trim(),
     panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim(),
     panelText: document.querySelector("#mode-panel")?.textContent || "",
     eventPopupHidden: document.querySelector("#event-popup")?.classList.contains("hidden"),
@@ -436,6 +494,7 @@ async function assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server) 
   assert(settings.settingsButtonActive === true, "Settings cog should show the active settings state");
   assert(settings.panelHidden === false, "Settings button should open a visible mode panel outside Map mode");
   assert(settings.panelTitle === "Settings", "Settings button should show a visible Settings panel from Summary");
+  assert(settings.panelStatus === "Advanced", "Settings panel should show an advanced maturity label");
   assert(settings.panelSummary === "Local observatory settings", "Settings panel should identify the local observatory control surface");
   assert(settings.panelText.includes("Renderer") && settings.panelText.includes("Backend"), "Settings panel should show renderer/backend details");
   assert(settings.eventPopupHidden === true, "Settings button should not reveal Map-only Event Context outside Map mode");
@@ -518,11 +577,20 @@ async function testBrowserUi(server, browser) {
     await waitForLoadedDemo(page);
 
     const chrome = await page.evaluate(() => ({
+      betaBannerText: document.querySelector("#beta-banner")?.textContent?.replace(/\s+/g, " ").trim() || "",
       turnCount: document.querySelector("#stage-turn-count")?.textContent?.trim(),
       statusRows: document.querySelectorAll("#metadata-list .root-row").length,
       statusIcons: document.querySelectorAll("#metadata-list .root-icon svg").length,
       statusDots: document.querySelectorAll("#metadata-list .root-dot").length,
       modeButtons: Array.from(document.querySelectorAll("[data-app-mode]")).map((button) => button.textContent?.trim()),
+      modeStatuses: Array.from(document.querySelectorAll("[data-app-mode]")).map((button) => [
+        button.getAttribute("data-app-mode"),
+        {
+          label: button.getAttribute("data-status"),
+          maturity: button.getAttribute("data-maturity"),
+        },
+      ]),
+      panelStatus: document.querySelector("#mode-panel-status")?.textContent?.trim() || "",
       settingsIcon: Boolean(document.querySelector("#settings-button svg")),
       settingsText: document.querySelector("#settings-button")?.textContent?.trim(),
       sessionsSidebarExists: Boolean(document.querySelector("#inspector-dock")),
@@ -531,6 +599,7 @@ async function testBrowserUi(server, browser) {
       visibleUrl: window.location.href,
     }));
     assert(chrome.turnCount && !chrome.turnCount.startsWith("0 "), "demo should render non-zero turn count");
+    assert(chrome.betaBannerText.includes("Beta") && chrome.betaBannerText.includes("experimental"), "beta banner should identify experimental beta surfaces");
     assert(chrome.statusRows > 0, "demo should render status-bar metadata");
     assert(chrome.statusIcons === chrome.statusRows, "status-bar metadata should use semantic icons for every row");
     assert(chrome.statusDots === 0, "status-bar metadata should not render generic color squares");
@@ -542,9 +611,24 @@ async function testBrowserUi(server, browser) {
     for (const tab of ["Health", "Insights", "Diff", "Raw", "Export"]) {
       assert(chrome.modeButtons.includes(tab), `${tab} tab should render`);
     }
+    const modeStatus = Object.fromEntries(chrome.modeStatuses);
+    assert(
+      modeStatus.summary?.label === "Beta" && modeStatus.map?.maturity === "beta" && modeStatus.timeline?.maturity === "beta",
+      "primary modes should be labeled beta"
+    );
+    assert(
+      modeStatus.insights?.label === "Experimental" && modeStatus.diff?.maturity === "experimental",
+      "heuristic modes should be labeled experimental"
+    );
+    assert(
+      modeStatus.health?.label === "Advanced" && modeStatus.raw?.maturity === "advanced" && modeStatus.export?.maturity === "advanced",
+      "utility modes should be labeled advanced"
+    );
+    assert(chrome.panelStatus === "Beta", "Summary panel should show a beta maturity label");
     assert(!chrome.modeButtons.includes("Settings"), "Settings should not render as a redundant mode tab");
     await assertSummaryDeepLink(page, server);
     await assertSummaryOpenEvidenceRoutesToRaw(page, server);
+    await assertInsightsPrioritizeSignals(page, server);
     await assertSettingsButtonOpensVisibleSurfaceFromSummary(page, server);
     assert(!chrome.sessionsSidebarExists, "Gutted sessions sidebar should not render");
     assert(!chrome.sessionTitleExists, "Redundant stage session title should not render");
