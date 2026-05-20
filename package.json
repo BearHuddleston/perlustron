@@ -21,5 +21,8 @@
     "playwright-core": "^1.60.0",
     "three": "0.184.0",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.7"
   }
 }

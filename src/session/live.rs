@@ -223,7 +223,7 @@ impl LiveCueBuilder {
                     self.observe_prompt_text(
                         entry,
                         event_index,
-                        compact_text(message, MESSAGE_PREVIEW_CHARS),
+                        normalize_text(message),
                     );
                 }
             }
@@ -234,7 +234,7 @@ impl LiveCueBuilder {
                         .payload
                         .get("message")
                         .and_then(Value::as_str)
-                        .map(|message| compact_text(message, MESSAGE_PREVIEW_CHARS)),
+                        .map(normalize_text),
                 );
             }
             "token_count" => {
@@ -286,7 +286,7 @@ impl LiveCueBuilder {
             .and_then(Value::as_str)
             .unwrap_or("message");
         let raw_text = extract_content_text(&entry.payload);
-        let text = compact_text(&raw_text, MESSAGE_PREVIEW_CHARS);
+        let text = normalize_text(&raw_text);
         if text.trim().is_empty() {
             return;
         }
@@ -353,11 +353,11 @@ impl LiveCueBuilder {
             "tool_search_output" => entry
                 .payload
                 .get("tools")
-                .map(|output| value_preview_limited(output, OUTPUT_PREVIEW_CHARS)),
+                .map(value_preview),
             _ => entry
                 .payload
                 .get("output")
-                .map(|output| value_preview_limited(output, OUTPUT_PREVIEW_CHARS)),
+                .map(value_preview),
         };
         self.complete_tool_call(LiveToolCompletion {
             call_id,
@@ -402,7 +402,7 @@ impl LiveCueBuilder {
             .get("result")
             .or_else(|| entry.payload.get("stdout"))
             .or_else(|| entry.payload.get("stderr"))
-            .map(|output| value_preview_limited(output, OUTPUT_PREVIEW_CHARS));
+            .map(value_preview);
         let duration_ms = entry.payload.get("duration").and_then(Value::as_u64);
         self.complete_tool_call(LiveToolCompletion {
             call_id,
@@ -447,16 +447,6 @@ impl LiveCueBuilder {
     fn finish(mut self) -> LiveTailCues {
         let mut active_tool_calls = self.active_tool_calls.into_values().collect::<Vec<_>>();
         active_tool_calls.sort_by_key(|call| call.event_index);
-        if active_tool_calls.len() > JSON_PREVIEW_MAX_ITEMS {
-            active_tool_calls =
-                active_tool_calls.split_off(active_tool_calls.len() - JSON_PREVIEW_MAX_ITEMS);
-        }
-
-        if self.completed_tool_calls.len() > JSON_PREVIEW_MAX_ITEMS {
-            self.completed_tool_calls = self
-                .completed_tool_calls
-                .split_off(self.completed_tool_calls.len() - JSON_PREVIEW_MAX_ITEMS);
-        }
         self.cues.active_tool_calls = active_tool_calls;
         self.cues.completed_tool_calls = self.completed_tool_calls;
         self.cues
@@ -496,7 +486,7 @@ fn call_from_function_call(
         kind: classify_call(&name),
         status: "running".to_owned(),
         duration_ms: None,
-        argument_preview: value_preview_limited(&parsed_arguments, ARGUMENT_PREVIEW_CHARS),
+        argument_preview: value_preview(&parsed_arguments),
         output_preview: None,
         assistant_message_id: None,
         subagent_session_path: None,
@@ -531,7 +521,7 @@ fn call_from_custom_tool_call(entry: &JsonlEntry, event_index: usize) -> LiveToo
         kind: classify_call(&name),
         status: "running".to_owned(),
         duration_ms: None,
-        argument_preview: value_preview_limited(&input, ARGUMENT_PREVIEW_CHARS),
+        argument_preview: value_preview(&input),
         output_preview: None,
         assistant_message_id: None,
         subagent_session_path: None,
@@ -569,7 +559,7 @@ fn call_from_tool_search_call(entry: &JsonlEntry, event_index: usize) -> LiveToo
             .unwrap_or("running")
             .to_owned(),
         duration_ms: None,
-        argument_preview: value_preview_limited(&arguments, ARGUMENT_PREVIEW_CHARS),
+        argument_preview: value_preview(&arguments),
         output_preview: None,
         assistant_message_id: None,
         subagent_session_path: None,
@@ -597,7 +587,7 @@ fn call_from_web_search_call(entry: &JsonlEntry, event_index: usize) -> LiveTool
             .unwrap_or("completed")
             .to_owned(),
         duration_ms: None,
-        argument_preview: value_preview_limited(&parsed_arguments, ARGUMENT_PREVIEW_CHARS),
+        argument_preview: value_preview(&parsed_arguments),
         output_preview: None,
         assistant_message_id: None,
         subagent_session_path: None,
@@ -654,20 +644,20 @@ fn subagent_status_preview(payload: Option<&Value>, text: &str) -> (String, Opti
     let Some(status) = payload.and_then(|payload| payload.get("status")) else {
         return (
             "completed".to_owned(),
-            Some(compact_text(text, OUTPUT_PREVIEW_CHARS)),
+            Some(normalize_text(text)),
         );
     };
 
     if let Some(completed) = status.get("completed") {
         return (
             "completed".to_owned(),
-            Some(value_preview_limited(completed, OUTPUT_PREVIEW_CHARS)),
+            Some(value_preview(completed)),
         );
     }
     if let Some(failed) = status.get("failed").or_else(|| status.get("error")) {
         return (
             "error".to_owned(),
-            Some(value_preview_limited(failed, OUTPUT_PREVIEW_CHARS)),
+            Some(value_preview(failed)),
         );
     }
     if let Some(status_text) = status.as_str() {
@@ -680,13 +670,13 @@ fn subagent_status_preview(payload: Option<&Value>, text: &str) -> (String, Opti
             } else {
                 name.to_owned()
             },
-            Some(value_preview_limited(value, OUTPUT_PREVIEW_CHARS)),
+            Some(value_preview(value)),
         );
     }
 
     (
         "completed".to_owned(),
-        Some(value_preview_limited(status, OUTPUT_PREVIEW_CHARS)),
+        Some(value_preview(status)),
     )
 }
 

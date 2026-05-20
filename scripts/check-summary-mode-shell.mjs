@@ -94,7 +94,8 @@ expect(app.includes("apiTokenRequired"), "Summary renderer should expose only to
 expect(app.includes('triage.className = "summary-triage"'), "Summary renderer should include the triage section row.");
 expect(app.includes('modeButton("Open Timeline"') && app.includes('modeButton("Open Export"'), "Summary triage sections should route to primary inspection and export flows.");
 expect(app.includes("function renderSummaryInsightQueue"), "Summary should render a dedicated top-insights queue.");
-expect(/inspectionQueue\.slice\(0,\s*3\)/m.test(app), "Summary should cap its actionable top-insights list to the first three queued findings.");
+expect(!/inspectionQueue\.slice\(0,\s*3\)/m.test(app), "Summary should render every queued Insight finding instead of capping the list.");
+expect(app.includes("const items = insights.inspectionQueue;"), "Summary Insights should use the full inspection queue.");
 expect(app.includes("summary-insights"), "Summary top-insights queue should have stable CSS hooks.");
 expect(app.includes('modeButton("Timeline Evidence"') && app.includes('modeButton("Transcript Evidence"') && app.includes('modeButton("Raw Evidence"'), "Summary insights should expose Timeline, Transcript, and Raw evidence routing actions.");
 expect(app.includes("function openInsightEvidence"), "Summary evidence actions should route through an explicit insight evidence helper.");

@@ -97,9 +97,8 @@ try {
         imageCount: 1,
         apiTokenRequired: true,
       });
-      const scrubbed = redactionSafeClipboardText(hostileText, 500);
-      const truncated = redactionSafeClipboardText("abcdefghijklmnop", 10);
-      const tinyTruncated = redactionSafeClipboardText("abcdefghijklmnop", 2);
+      const scrubbed = redactionSafeClipboardText(hostileText);
+      const fullClipboardText = redactionSafeClipboardText("abcdefghijklmnop");
       const combined = [structuralSummary, reference, shareSummary, scrubbed].join("\\n---\\n");
 
       for (const sentinel of forbidden) {
@@ -116,8 +115,7 @@ try {
       expect(shareSummary.includes("raw_logs: requires human review before sharing"), "Share summary should say raw logs need review.");
       expect(shareSummary.includes("safe_surfaces:"), "Share summary should distinguish safer sanitized/copy-safe surfaces.");
       expect(shareSummary.includes("human judgment"), "Share summary should preserve human-review caveat.");
-      expect(truncated === "abcdefg...", "Truncated clipboard text should use an ASCII marker and respect max length.");
-      expect(tinyTruncated === "..", "Tiny clipboard truncation should stay within the requested max length.");
+      expect(fullClipboardText === "abcdefghijklmnop", "Clipboard text should preserve full content.");
 
       export { failures };
     `,

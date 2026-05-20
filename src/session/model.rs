@@ -1,22 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 const DEFAULT_PORT: u16 = 8787;
-const ARGUMENT_PREVIEW_CHARS: usize = 900;
-const OUTPUT_PREVIEW_CHARS: usize = 700;
-const MESSAGE_PREVIEW_CHARS: usize = 1_200;
-const FILE_CHANGE_PREVIEW_CHARS: usize = 900;
 const MAX_TOKEN_SAMPLES: usize = 80;
-const MAX_ARGUMENT_PARSE_BYTES: usize = 64 * 1024;
-const JSON_PREVIEW_STRING_CHARS: usize = 360;
-const JSON_PREVIEW_MAX_ITEMS: usize = 12;
-const JSON_PREVIEW_MAX_DEPTH: usize = 3;
 const GRAPH_APPEND_PARSE_BYTE_BUDGET: u64 = 256 * 1024;
 const SESSION_STATUS_TAIL_BYTES: u64 = 128 * 1024;
 const SESSION_EVENT_POLL_MS: u64 = 1_000;
 const SESSION_EVENT_KEEPALIVE_SECS: u64 = 15;
-const MAX_SUBAGENT_INSPECTION_NODES: usize = 72;
 const MAX_SUBAGENT_SESSION_SCAN_ENTRIES: usize = 20_000;
-const MAX_SESSION_LIST_ITEMS: usize = 250;
 const PARSER_SCHEMA_VERSION: &str = "agent-trace-v1";
 const NORMALIZED_TRACE_SCHEMA_VERSION: &str = "agent-trace-v1";
 const PARSER_HEALTH_REF_LIMIT: usize = 50;
@@ -550,8 +540,8 @@ impl ParserHealth {
             MalformedLineRef {
                 line_number: event_index + 1,
                 event_index,
-                error: compact_text(&error.to_string(), 240),
-                preview: compact_text(line.trim(), 700),
+                error: normalize_text(&error.to_string()),
+                preview: normalize_text(line.trim()),
             },
         );
     }
@@ -577,7 +567,7 @@ impl ParserHealth {
                 event_index,
                 source_event_type,
                 normalized_type: "unknown".to_owned(),
-                preview: value_preview_limited(value, 700),
+                preview: value_preview(value),
             },
         );
     }
