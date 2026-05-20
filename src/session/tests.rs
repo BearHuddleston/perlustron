@@ -19,6 +19,28 @@ fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
+fn completed_tool_event(
+    id: &str,
+    line_number: usize,
+    title: &str,
+    tool_name: &str,
+    argument_preview: &str,
+    output_preview: &str,
+) -> FlatTraceEvent {
+    FlatTraceEvent {
+        id: id.to_owned(),
+        line_number,
+        event_index: line_number.saturating_sub(1),
+        normalized_type: "tool_call".to_owned(),
+        title: title.to_owned(),
+        text: format!("{argument_preview}\n{output_preview}"),
+        tool_name: Some(tool_name.to_owned()),
+        status: Some("completed".to_owned()),
+        duration_ms: None,
+        output_preview: Some(output_preview.to_owned()),
+    }
+}
+
 const ADVERSARIAL_SECRET_SENTINELS: &[&str] = &[
     "PL_FIXTURE_MULTILINE_SECRET_ALPHA",
     "PL_FIXTURE_MULTILINE_SECRET_BETA",
@@ -2077,6 +2099,116 @@ fn insights_detect_failure_loop_missing_result_context_and_files() {
 }
 
 #[test]
+fn insights_group_repeated_tool_calls_by_arguments_not_outputs() {
+    let events = vec![
+        completed_tool_event(
+            "call-1",
+            1,
+            "local shell_command",
+            "shell_command",
+            "{\"command\":\"cargo test\"}",
+            "first failure output",
+        ),
+        completed_tool_event(
+            "call-2",
+            3,
+            "local shell_command",
+            "shell_command",
+            "{\"command\":\"cargo test\"}",
+            "second failure output",
+        ),
+    ];
+
+    let repeated = detect_repeated_patterns(&events, &[]);
+
+    assert!(repeated.iter().any(|pattern| {
+        pattern.pattern_type == "tool_call"
+            && pattern.count == 2
+            && pattern.first_line == 1
+            && pattern.last_line == 3
+    }));
+}
+
+#[test]
+fn insights_ignore_successful_shell_output_that_mentions_error_words() {
+    let event = completed_tool_event(
+        "call-success",
+        4,
+        "local shell_command",
+        "shell_command",
+        "{\"command\":\"Get-Content review.md\"}",
+        "Exit code: 0\nOutput:\nThe review mentions error handling, sandbox policy, approval flow, and failed tests as examples.",
+    );
+
+    assert!(!flat_event_is_error_like(&event));
+    assert!(detect_suspicious_tool_calls(std::slice::from_ref(&event)).is_empty());
+    assert!(detect_approval_friction(&[event]).is_empty());
+}
+
+#[test]
+fn insights_ignore_probe_outputs_and_patch_arguments_as_failures() {
+    let empty_nonzero_probe = completed_tool_event(
+        "call-probe",
+        8,
+        "local shell_command",
+        "shell_command",
+        "{\n  \"command\": \"rg -n \\\"missing-pattern\\\" fixtures src tests\",\n  \"workdir\": \"C:\\\\Projects\\\\agent-space\"\n}",
+        "Exit code: 1\nWall time: 0.1 seconds\nOutput:\n\n",
+    );
+    let successful_patch_with_friction_terms = completed_tool_event(
+        "call-patch",
+        12,
+        "local apply_patch",
+        "apply_patch",
+        "patch text mentions approval, sandbox, and permission examples",
+        "{\"output\":\"Success. Updated the following files:\\nM src\\\\session\\\\tests.rs\\n\"}",
+    );
+    let subagent_file_summary = completed_tool_event(
+        "call-parent:subagent:file-1",
+        16,
+        "file-update subagent.file",
+        "subagent.file",
+        "src/lib.rs",
+        "updated error handling text",
+    );
+    let subagent_message_summary = completed_tool_event(
+        "call-parent:subagent:message-1",
+        18,
+        "message subagent.message",
+        "subagent.message",
+        "subagent reported review status",
+        "Found issues around error handling and sandbox wording.",
+    );
+
+    assert!(!flat_event_is_error_like(&empty_nonzero_probe));
+    assert!(detect_suspicious_tool_calls(std::slice::from_ref(&empty_nonzero_probe)).is_empty());
+    assert!(!flat_event_is_error_like(&subagent_file_summary));
+    assert!(detect_suspicious_tool_calls(std::slice::from_ref(&subagent_file_summary)).is_empty());
+    assert!(!flat_event_is_error_like(&subagent_message_summary));
+    assert!(
+        detect_suspicious_tool_calls(std::slice::from_ref(&subagent_message_summary)).is_empty()
+    );
+    assert!(detect_approval_friction(&[successful_patch_with_friction_terms]).is_empty());
+}
+
+#[test]
+fn insights_dedupe_suspicious_tool_call_records() {
+    let event = completed_tool_event(
+        "call-duplicate",
+        21,
+        "local shell_command",
+        "shell_command",
+        "{\"command\":\"npm test\"}",
+        "Exit code: 1\nOutput:\nfailed",
+    );
+    let events = vec![event.clone(), event];
+
+    let suspicious = detect_suspicious_tool_calls(&events);
+
+    assert_eq!(suspicious.len(), 1);
+}
+
+#[test]
 fn unknowns_and_fixture_reports_are_redacted_and_issue_ready() {
     let input = fixture_path("codex-sanitized.jsonl");
     let report =
@@ -2172,13 +2304,20 @@ fn scenario_fixtures_cover_debugging_workflows() {
         &cache,
     )
     .unwrap();
-    assert!(
-        missing
-            .insights
-            .suspicious_tool_calls
-            .iter()
-            .any(|call| call.reason.contains("no linked completed result"))
-    );
+    let missing_call = missing
+        .insights
+        .suspicious_tool_calls
+        .iter()
+        .find(|call| call.reason.contains("no linked completed result"))
+        .expect("missing-result fixture should expose a suspicious call");
+    let missing_queue_item = missing
+        .insights
+        .inspection_queue
+        .iter()
+        .find(|item| item.event_ids.contains(&missing_call.call.id))
+        .expect("missing-result suspicious call should be queued");
+    assert_eq!(missing_call.severity, "high");
+    assert_eq!(missing_queue_item.severity, missing_call.severity);
 
     let context = load_session_graph(
         SessionSource::Codex,
@@ -2191,6 +2330,24 @@ fn scenario_fixtures_cover_debugging_workflows() {
         "high context markers logged"
     );
     assert_eq!(context.compactions.len(), 1);
+
+    let compaction_only = load_session_graph(
+        SessionSource::Claude,
+        &fixture_path("claude-sanitized.jsonl"),
+        &cache,
+    )
+    .unwrap();
+    assert_eq!(
+        compaction_only.insights.context_pressure.status,
+        "compaction markers logged"
+    );
+    assert!(
+        compaction_only
+            .insights
+            .inspection_queue
+            .iter()
+            .any(|item| item.id == "context-pressure")
+    );
 
     let mixed = load_session_graph(
         SessionSource::Codex,

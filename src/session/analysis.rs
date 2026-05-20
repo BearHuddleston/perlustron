@@ -24,7 +24,6 @@ const APPROVAL_FRICTION_TERMS: &[&str] = &[
     "denied",
     "forbidden",
     "policy",
-    "not allowed",
     "access is denied",
 ];
 
@@ -174,6 +173,34 @@ struct FlatTraceEvent {
     output_preview: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum SuspiciousReason {
+    MissingResult,
+    LongRunning,
+    EmptyOutput,
+    NonzeroExit,
+    ErrorLikeOutput,
+}
+
+impl SuspiciousReason {
+    fn message(self) -> &'static str {
+        match self {
+            Self::MissingResult => "tool call has no linked completed result",
+            Self::LongRunning => "tool call ran for at least 30 seconds",
+            Self::EmptyOutput => "tool result output was empty",
+            Self::NonzeroExit => "tool output logged nonzero exit code",
+            Self::ErrorLikeOutput => "tool output contains error-like text",
+        }
+    }
+
+    fn is_high(self) -> bool {
+        matches!(
+            self,
+            Self::MissingResult | Self::NonzeroExit | Self::ErrorLikeOutput
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 struct FileObservation {
     path: String,
@@ -277,12 +304,7 @@ fn build_inspection_queue(
         queue.push(InspectionQueueItem {
             id: format!("suspicious-tool-{}", call.call.event_index),
             title: "Suspicious tool call".to_owned(),
-            severity: if call.reason.contains("error") || call.status != "completed" {
-                "high"
-            } else {
-                "warning"
-            }
-            .to_owned(),
+            severity: call.severity.clone(),
             confidence: call.confidence.clone(),
             directness: "directly logged".to_owned(),
             summary: format!(
@@ -676,7 +698,7 @@ fn detect_repeated_patterns(
         let key = format!(
             "tool:{}:{}",
             tool_name.to_ascii_lowercase(),
-            normalized_repeat_key(&event.text)
+            normalized_repeat_key(tool_argument_text(event))
         );
         grouped.entry(key).or_default().push(event);
     }
@@ -773,37 +795,47 @@ fn detect_repeated_patterns(
 
 fn detect_suspicious_tool_calls(events: &[FlatTraceEvent]) -> Vec<SuspiciousToolCallInsight> {
     let mut suspicious = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for event in events.iter().filter(|event| event.normalized_type == "tool_call") {
+        if suspicious.len() >= 32 {
+            break;
+        }
+        if event_is_subagent_summary_tool(event) {
+            continue;
+        }
         let mut reasons = Vec::new();
         if event.status.as_deref() != Some("completed") {
-            reasons.push("tool call has no linked completed result");
+            reasons.push(SuspiciousReason::MissingResult);
         }
         if event.duration_ms.is_some_and(|duration| duration >= 30_000) {
-            reasons.push("tool call ran for at least 30 seconds");
+            reasons.push(SuspiciousReason::LongRunning);
         }
         if event.output_preview.as_deref() == Some("") {
-            reasons.push("tool result output was empty");
+            reasons.push(SuspiciousReason::EmptyOutput);
         }
-        if event
-            .output_preview
-            .as_deref()
-            .map(text_is_error_like)
-            .unwrap_or(false)
-        {
-            reasons.push("tool output contains error-like text");
+        if let Some(reason) = tool_output_error_reason(event) {
+            reasons.push(reason);
         }
         if reasons.is_empty() {
             continue;
         }
+        if !seen.insert(event.id.as_str()) {
+            continue;
+        }
+        let reason = reasons
+            .iter()
+            .map(|reason| reason.message())
+            .collect::<Vec<_>>()
+            .join("; ");
         suspicious.push(SuspiciousToolCallInsight {
             title: "Suspicious tool result".to_owned(),
-            severity: if reasons.iter().any(|reason| reason.contains("error")) {
-                "warning".to_owned()
+            severity: if reasons.iter().any(|reason| reason.is_high()) {
+                "high".to_owned()
             } else {
-                "info".to_owned()
+                "warning".to_owned()
             },
             confidence: "strong heuristic".to_owned(),
-            reason: reasons.join("; "),
+            reason,
             call: insight_link_from_flat_event(event),
             tool_name: event.tool_name.clone().unwrap_or_else(|| "tool".to_owned()),
             status: event.status.clone().unwrap_or_else(|| "unknown".to_owned()),
@@ -811,7 +843,6 @@ fn detect_suspicious_tool_calls(events: &[FlatTraceEvent]) -> Vec<SuspiciousTool
             output_preview: event.output_preview.as_deref().map(|output| compact_text(output, 360)),
         });
     }
-    suspicious.truncate(32);
     suspicious
 }
 
@@ -848,19 +879,21 @@ fn analyze_context_pressure(graph: &SessionGraph) -> ContextPressureInsight {
             title: compaction.title.clone(),
         })
         .collect::<Vec<_>>();
-    let status = if telemetry.samples.is_empty() {
-        "not logged"
-    } else if !high_context_markers.is_empty() {
+    let status = if !high_context_markers.is_empty() {
         "high context markers logged"
     } else if !compaction_markers.is_empty() {
         "compaction markers logged"
+    } else if telemetry.samples.is_empty() {
+        "not logged"
     } else {
         "token telemetry logged"
     };
-    let explanation = if telemetry.samples.is_empty() {
+    let explanation = if !high_context_markers.is_empty() || !compaction_markers.is_empty() {
+        "Context pressure is based only on logged token telemetry and compaction markers. This may be relevant to later behavior but does not expose hidden state.".to_owned()
+    } else if telemetry.samples.is_empty() {
         "No token/context telemetry was logged, so Perlustron cannot infer context pressure for this session.".to_owned()
     } else {
-        "Context pressure is based only on logged token telemetry and compaction markers. This may be relevant to later behavior but does not expose hidden state.".to_owned()
+        "Token telemetry was logged without high-context or compaction markers.".to_owned()
     };
 
     ContextPressureInsight {
@@ -938,7 +971,7 @@ fn analyze_file_impact(
 fn detect_approval_friction(events: &[FlatTraceEvent]) -> Vec<InsightNote> {
     events
         .iter()
-        .filter(|event| approval_friction_text(&event.text) || approval_friction_text(&event.title))
+        .filter(|event| event_mentions_approval_friction(event))
         .take(20)
         .map(|event| InsightNote {
             title: "Approval or sandbox friction".to_owned(),
@@ -1130,9 +1163,108 @@ fn flat_event_is_error_like(event: &FlatTraceEvent) -> bool {
     ) {
         return false;
     }
+    if event.normalized_type == "tool_call" {
+        if event_is_subagent_summary_tool(event) {
+            return false;
+        }
+        return text_is_error_like(&event.title)
+            || tool_output_error_reason(event).is_some()
+            || event.status.as_deref().is_some_and(text_is_error_like);
+    }
     text_is_error_like(&event.title)
         || text_is_error_like(&event.text)
         || event.status.as_deref().is_some_and(text_is_error_like)
+}
+
+fn tool_output_error_reason(event: &FlatTraceEvent) -> Option<SuspiciousReason> {
+    let output = event.output_preview.as_deref()?;
+    if let Some(code) = logged_exit_code(output) {
+        if is_empty_probe_result(event, code, output) {
+            return None;
+        }
+        return (code != 0).then_some(SuspiciousReason::NonzeroExit);
+    }
+    text_is_error_like(output).then_some(SuspiciousReason::ErrorLikeOutput)
+}
+
+fn event_is_subagent_summary_tool(event: &FlatTraceEvent) -> bool {
+    event
+        .tool_name
+        .as_deref()
+        .is_some_and(|name| name.starts_with("subagent."))
+}
+
+fn is_empty_probe_result(event: &FlatTraceEvent, code: i32, output: &str) -> bool {
+    code == 1
+        && logged_output_body_is_empty(output) == Some(true)
+        && event.tool_name.as_deref() == Some("shell_command")
+        && {
+            let arguments = tool_argument_text(event).to_ascii_lowercase();
+            ["rg ", "select-string", "get-childitem", "test-path"]
+                .iter()
+                .any(|probe| arguments.contains(probe))
+        }
+}
+
+fn tool_argument_text(event: &FlatTraceEvent) -> &str {
+    if let Some(output) = event.output_preview.as_deref()
+        && let Some(arguments) = event.text.strip_suffix(output)
+    {
+        return arguments.trim_end_matches(['\r', '\n']);
+    }
+    event
+        .text
+        .split_once('\n')
+        .map(|(arguments, _)| arguments)
+        .unwrap_or(&event.text)
+}
+
+fn event_mentions_approval_friction(event: &FlatTraceEvent) -> bool {
+    match event.normalized_type.as_str() {
+        "tool_call" => {
+            if event
+                .output_preview
+                .as_deref()
+                .and_then(logged_exit_code)
+                .is_some_and(|code| code == 0)
+            {
+                return false;
+            }
+            approval_friction_text(&event.title)
+                || event
+                    .output_preview
+                    .as_deref()
+                    .is_some_and(approval_friction_text)
+        }
+        "unknown" | "malformed" => {
+            approval_friction_text(&event.text) || approval_friction_text(&event.title)
+        }
+        _ => false,
+    }
+}
+
+fn logged_exit_code(text: &str) -> Option<i32> {
+    for line in text.lines() {
+        let lower = line.trim_start().to_ascii_lowercase();
+        let Some(raw_code) = lower.strip_prefix("exit code:") else {
+            continue;
+        };
+        return raw_code.split_whitespace().next()?.parse().ok();
+    }
+    None
+}
+
+fn logged_output_body_is_empty(text: &str) -> Option<bool> {
+    let mut after_output_marker = false;
+    for line in text.lines() {
+        if after_output_marker && !line.trim().is_empty() {
+            return Some(false);
+        }
+        if line.trim() == "Output:" {
+            after_output_marker = true;
+        }
+    }
+    after_output_marker.then_some(true)
 }
 
 fn text_is_error_like(text: &str) -> bool {
