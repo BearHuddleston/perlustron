@@ -507,6 +507,62 @@ fn completed_codex_call_uses_completion_event_index() {
 }
 
 #[test]
+fn codex_tool_payloads_preserve_full_nested_arguments_and_output() {
+    let arguments = json!({
+        "plan": [
+            {
+                "status": "completed",
+                "step": "inspect the full nested update_plan payload"
+            },
+            {
+                "status": "in_progress",
+                "step": "verify transcript renders without depth placeholders"
+            }
+        ]
+    })
+    .to_string();
+    let long_output = "x".repeat(732);
+    let call_line = json!({
+        "timestamp": "2026-05-10T16:04:02.287Z",
+        "type": "response_item",
+        "payload": {
+            "type": "function_call",
+            "name": "update_plan",
+            "call_id": "call_plan",
+            "arguments": arguments
+        }
+    })
+    .to_string();
+    let output_line = json!({
+        "timestamp": "2026-05-10T16:04:03.287Z",
+        "type": "response_item",
+        "payload": {
+            "type": "function_call_output",
+            "call_id": "call_plan",
+            "output": long_output
+        }
+    })
+    .to_string();
+    let mut state = SessionParseState::new();
+
+    state
+        .apply_line(SessionSource::Codex, &call_line, 10)
+        .unwrap();
+    state
+        .apply_line(SessionSource::Codex, &output_line, 12)
+        .unwrap();
+
+    let call = &state.prompts[0].calls[0];
+    assert!(call.argument_preview.contains("\"status\": \"completed\""));
+    assert!(
+        call.argument_preview
+            .contains("inspect the full nested update_plan payload")
+    );
+    assert_eq!(call.output_preview.as_deref().map(str::len), Some(732));
+    assert_eq!(call.output_preview.as_deref(), Some(long_output.as_str()));
+}
+
+#[test]
 fn codex_calls_link_to_preceding_assistant_message() {
     let mut state = SessionParseState::new();
     state
@@ -684,6 +740,7 @@ fn parses_subagent_notifications_as_side_calls() {
 #[test]
 fn attaches_subagent_session_nodes_to_spawn_call() {
     let root = temp_jsonl_path("subagent-root").with_extension("");
+    let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
     let agent_id = "019e1704-test-agent";
     let parent_path = root.join("rollout-main.jsonl");
@@ -713,31 +770,29 @@ fn attaches_subagent_session_nodes_to_spawn_call() {
         .to_string(),
     ]
     .join("\n");
-    let child = [
-        codex_message_line("user", "inspect child graph"),
-        json!({
-            "timestamp": "2026-05-10T16:04:05.287Z",
-            "type": "response_item",
-            "payload": {
-                "type": "function_call",
-                "name": "shell_command",
-                "call_id": "child_shell",
-                "arguments": { "command": "rg TODO" }
-            }
-        })
-        .to_string(),
-        json!({
-            "timestamp": "2026-05-10T16:04:06.287Z",
-            "type": "response_item",
-            "payload": {
-                "type": "function_call_output",
-                "call_id": "child_shell",
-                "output": "done"
-            }
-        })
-        .to_string(),
-    ]
-    .join("\n");
+    let child_prompt = format!(
+        "inspect child graph {}",
+        "with full prompt detail ".repeat(80)
+    )
+    .trim_end()
+    .to_owned();
+    let mut child_lines = vec![codex_message_line("user", &child_prompt)];
+    for index in 0..80 {
+        child_lines.push(
+            json!({
+                "timestamp": "2026-05-10T16:04:05.287Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "function_call",
+                    "name": "shell_command",
+                    "call_id": format!("child_shell_{index}"),
+                    "arguments": { "command": format!("rg TODO {index}") }
+                }
+            })
+            .to_string(),
+        );
+    }
+    let child = child_lines.join("\n");
     fs::write(&parent_path, parent + "\n").unwrap();
     fs::write(&child_path, child + "\n").unwrap();
 
@@ -758,12 +813,15 @@ fn attaches_subagent_session_nodes_to_spawn_call() {
     );
     assert!(call.subagent_nodes.iter().any(|node| {
         node.name == "subagent.prompt"
-            && node
-                .output_preview
-                .as_deref()
-                .unwrap_or("")
-                .contains("inspect child")
+            && node.output_preview.as_deref() == Some(child_prompt.as_str())
     }));
+    assert!(call.subagent_nodes.len() >= 81);
+    assert!(
+        !call
+            .subagent_nodes
+            .iter()
+            .any(|node| node.name == "subagent.more")
+    );
     assert!(
         call.subagent_nodes
             .iter()
@@ -1211,8 +1269,8 @@ fn appended_session_signals_treats_subagent_notifications_as_call_cues() {
 }
 
 #[test]
-fn load_session_status_reparses_truncated_cached_file() {
-    let path = temp_jsonl_path("status-truncate");
+fn load_session_status_reparses_shrunk_cached_file() {
+    let path = temp_jsonl_path("status-shrink");
     let cache = Mutex::new(HashMap::new());
     fs::write(&path, codex_message_line("user", "first prompt") + "\n").unwrap();
 
@@ -2206,6 +2264,34 @@ fn insights_dedupe_suspicious_tool_call_records() {
     let suspicious = detect_suspicious_tool_calls(&events);
 
     assert_eq!(suspicious.len(), 1);
+}
+
+#[test]
+fn insights_keep_all_repeated_and_suspicious_tool_findings() {
+    let events = (0..40)
+        .map(|index| {
+            completed_tool_event(
+                &format!("call-{index}"),
+                index + 1,
+                "local shell_command",
+                "shell_command",
+                "{\"command\":\"cargo test insights\"}",
+                "Exit code: 1\nOutput:\nfailed",
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let repeated = detect_repeated_patterns(&events, &[]);
+    let suspicious = detect_suspicious_tool_calls(&events);
+
+    let repeated_tool = repeated
+        .iter()
+        .find(|pattern| pattern.pattern_type == "tool_call")
+        .expect("repeated tool-call pattern should be reported");
+    assert_eq!(repeated_tool.count, 40);
+    assert_eq!(repeated_tool.examples.len(), 40);
+    assert_eq!(repeated_tool.linked_events.len(), 40);
+    assert_eq!(suspicious.len(), 40);
 }
 
 #[test]

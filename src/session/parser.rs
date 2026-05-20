@@ -80,8 +80,8 @@ fn line_may_affect_graph(source: SessionSource, line: &str) -> bool {
 }
 
 fn parsed_line_may_affect_graph(source: SessionSource, parsed: Option<&Value>, line: &str) -> bool {
-    if source == SessionSource::Claude && let Some(value) = parsed {
-        return claude_value_may_affect_graph(value);
+    if let Some(value) = parsed {
+        return unknown_event_type(source, value).is_none();
     }
 
     line_may_affect_graph(source, line)
@@ -146,7 +146,8 @@ fn unknown_claude_event_type(value: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .unwrap_or("<missing-type>");
     match entry_type {
-        "user" | "assistant" | "summary" | "compacted" | "compaction" => None,
+        "user" | "assistant" | "summary" | "compacted" | "compaction" | "last-prompt"
+        | "ai-title" => None,
         _ => Some(format!("claude:{entry_type}")),
     }
 }
@@ -161,13 +162,6 @@ fn claude_line_may_affect_graph(line: &str) -> bool {
             "\"type\": \"last-prompt\"",
         )
         || contains_json_field(line, "\"type\":\"ai-title\"", "\"type\": \"ai-title\"")
-}
-
-fn claude_value_may_affect_graph(value: &Value) -> bool {
-    matches!(
-        value.get("type").and_then(Value::as_str),
-        Some("user" | "assistant" | "summary" | "compacted" | "compaction" | "last-prompt" | "ai-title")
-    )
 }
 
 fn line_has_compaction_event(head: &str) -> bool {
@@ -589,7 +583,7 @@ fn subagent_inspection_nodes(parent_call_id: &str, graph: &SessionGraph) -> Vec<
             prompt.timestamp.clone(),
             ("subagent.prompt", "subagent"),
             prompt.title.clone(),
-            Some(compact_text(&prompt.text, OUTPUT_PREVIEW_CHARS)),
+            Some(prompt.text.clone()),
         ));
 
         for call in &prompt.calls {
@@ -609,7 +603,7 @@ fn subagent_inspection_nodes(parent_call_id: &str, graph: &SessionGraph) -> Vec<
                 message.timestamp.clone(),
                 ("subagent.message", "message"),
                 "assistant output".to_owned(),
-                Some(compact_text(&message.text, OUTPUT_PREVIEW_CHARS)),
+                Some(message.text.clone()),
             ));
         }
 
@@ -621,10 +615,7 @@ fn subagent_inspection_nodes(parent_call_id: &str, graph: &SessionGraph) -> Vec<
                 change.timestamp.clone(),
                 ("subagent.file", &format!("file-{}", change.change_type)),
                 change.short_path.clone(),
-                Some(compact_text(
-                    &format!("{}\n{}", change.path, change.preview),
-                    OUTPUT_PREVIEW_CHARS,
-                )),
+                Some(format!("{}\n{}", change.path, change.preview)),
             ));
         }
     }
@@ -637,27 +628,11 @@ fn subagent_inspection_nodes(parent_call_id: &str, graph: &SessionGraph) -> Vec<
             compaction.timestamp.clone(),
             ("subagent.compaction", "compaction"),
             compaction.title.clone(),
-            Some(compact_text(&compaction.detail, OUTPUT_PREVIEW_CHARS)),
+            Some(compaction.detail.clone()),
         ));
     }
 
     nodes.sort_by_key(|node| node.event_index);
-    if nodes.len() > MAX_SUBAGENT_INSPECTION_NODES {
-        let omitted = nodes.len() - MAX_SUBAGENT_INSPECTION_NODES + 1;
-        nodes.truncate(MAX_SUBAGENT_INSPECTION_NODES - 1);
-        nodes.push(subagent_pseudo_call(
-            parent_call_id,
-            "more",
-            nodes
-                .last()
-                .map(|node| node.event_index + 1)
-                .unwrap_or_default(),
-            None,
-            ("subagent.more", "coordination"),
-            format!("{omitted} more subagent nodes"),
-            None,
-        ));
-    }
     nodes
 }
 
@@ -876,7 +851,7 @@ fn handle_response_item(
                 .unwrap_or("message");
 
             let raw_text = extract_content_text(&entry.payload);
-            let text = compact_text(&raw_text, MESSAGE_PREVIEW_CHARS);
+            let text = normalize_text(&raw_text);
             let images = extract_content_images(SessionSource::Codex, event_index, &entry.payload);
             if text.is_empty() && images.is_empty() {
                 return;
@@ -985,7 +960,7 @@ fn handle_response_item(
                 let output = entry
                     .payload
                     .get("output")
-                    .map(|output| value_preview_limited(output, OUTPUT_PREVIEW_CHARS))
+                    .map(value_preview)
                     .unwrap_or_default();
                 call.output_preview = Some(output);
             }
@@ -1002,7 +977,7 @@ fn handle_response_item(
                 let output = entry
                     .payload
                     .get("output")
-                    .map(|output| value_preview_limited(output, OUTPUT_PREVIEW_CHARS))
+                    .map(value_preview)
                     .unwrap_or_default();
                 call.output_preview = Some(output);
             }
@@ -1038,7 +1013,7 @@ fn handle_response_item(
                 let output = entry
                     .payload
                     .get("tools")
-                    .map(|output| value_preview_limited(output, OUTPUT_PREVIEW_CHARS))
+                    .map(value_preview)
                     .unwrap_or_default();
                 call.output_preview = Some(output);
             }
@@ -1178,7 +1153,7 @@ fn handle_mcp_tool_call_end(
     let output_preview = entry
         .payload
         .get("result")
-        .map(|result| value_preview_limited(result, OUTPUT_PREVIEW_CHARS));
+        .map(value_preview);
 
     if let Some((prompt_index, call_index)) = calls_by_id.get(&call_id).copied() {
         let call = &mut prompts[prompt_index].calls[call_index];
@@ -1221,7 +1196,7 @@ fn handle_mcp_tool_call_end(
         name,
         status: mcp_status(&entry.payload),
         duration_ms,
-        argument_preview: value_preview_limited(&arguments, ARGUMENT_PREVIEW_CHARS),
+        argument_preview: value_preview(&arguments),
         output_preview,
         assistant_message_id: assistant_message_by_prompt.get(&prompt_index).cloned(),
         subagent_session_path: None,
@@ -1333,7 +1308,7 @@ fn patch_apply_output_preview(payload: &Value) -> Option<String> {
     if preview.trim().is_empty() {
         None
     } else {
-        Some(compact_text(&preview, OUTPUT_PREVIEW_CHARS))
+        Some(normalize_text(&preview))
     }
 }
 
@@ -1391,14 +1366,14 @@ fn patch_change_preview(change: &Value) -> String {
         .get("unified_diff")
         .or_else(|| change.get("content"))
         .and_then(Value::as_str)
-        .map(|text| compact_text(text, FILE_CHANGE_PREVIEW_CHARS))
+        .map(normalize_text)
         .or_else(|| {
             change
                 .get("move_path")
                 .and_then(Value::as_str)
                 .map(|path| format!("moved to {path}"))
         })
-        .unwrap_or_else(|| value_preview_limited(change, FILE_CHANGE_PREVIEW_CHARS))
+        .unwrap_or_else(|| value_preview(change))
 }
 
 fn patch_change_detail(path: &str, change_type: &str, change: &Value, preview: &str) -> String {
@@ -1440,10 +1415,7 @@ fn compaction_node_from_codex_entry(
         .map(str::len)
         .unwrap_or_default();
     let encrypted = encrypted_content_len > 0;
-    let summary = compact_text(
-        &compaction_summary_text(&entry.payload, compaction_payload),
-        MESSAGE_PREVIEW_CHARS,
-    );
+    let summary = normalize_text(&compaction_summary_text(&entry.payload, compaction_payload));
 
     if summary.is_empty() && replaced_message_count == 0 && !encrypted {
         return None;
@@ -1499,7 +1471,7 @@ fn compaction_node_from_codex_entry(
 
 fn compaction_node_from_claude_entry(entry: &Value, event_index: usize) -> Option<CompactionNode> {
     let timestamp = entry_timestamp(entry);
-    let summary = compact_text(&claude_summary_text(entry), MESSAGE_PREVIEW_CHARS);
+    let summary = normalize_text(&claude_summary_text(entry));
     let replacement_count = entry
         .get("replacement_history")
         .and_then(Value::as_array)
@@ -1559,7 +1531,7 @@ fn handle_claude_user_entry(
 
     apply_claude_tool_results(content, entry, event_index, prompts, calls_by_id);
 
-    let text = compact_text(&extract_claude_user_text(content), MESSAGE_PREVIEW_CHARS);
+    let text = normalize_text(&extract_claude_user_text(content));
     let images = extract_claude_content_images(SessionSource::Claude, event_index, content);
     if text.is_empty() && images.is_empty() {
         return;
@@ -1596,10 +1568,7 @@ fn handle_claude_assistant_entry(
         return;
     };
 
-    let text = compact_text(
-        &extract_claude_assistant_text(content),
-        MESSAGE_PREVIEW_CHARS,
-    );
+    let text = normalize_text(&extract_claude_assistant_text(content));
     let assistant_message_id = if text.is_empty() {
         None
     } else {
@@ -1646,7 +1615,7 @@ fn handle_claude_assistant_entry(
                 name,
                 status: "running".to_owned(),
                 duration_ms: None,
-                argument_preview: value_preview_limited(&arguments, ARGUMENT_PREVIEW_CHARS),
+                argument_preview: value_preview(&arguments),
                 output_preview: None,
                 assistant_message_id: assistant_message_id.clone(),
                 subagent_session_path: None,
@@ -1699,7 +1668,7 @@ fn apply_claude_tool_results(
         let output = part
             .get("content")
             .or_else(|| entry.get("toolUseResult"))
-            .map(|value| value_preview_limited(value, OUTPUT_PREVIEW_CHARS))
+            .map(value_preview)
             .unwrap_or_else(|| format!("Claude tool result at event {event_index}"));
         call.output_preview = Some(output);
     }
@@ -2032,11 +2001,6 @@ fn build_timeline_ticks(
 
     events
         .into_iter()
-        .rev()
-        .take(140)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
         .enumerate()
         .map(|(index, (event_index, kind))| TimelineTick {
             kind,
@@ -2101,7 +2065,7 @@ fn format_time_label(timestamp: &str) -> String {
         .split_once('T')
         .and_then(|(_, rest)| rest.get(0..5))
         .map(str::to_owned)
-        .unwrap_or_else(|| timestamp.chars().take(10).collect())
+        .unwrap_or_else(|| timestamp.to_owned())
 }
 
 fn build_session_roots(

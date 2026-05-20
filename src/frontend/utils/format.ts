@@ -46,19 +46,6 @@ export function formatNumber(value: number | null | undefined, fallback = "n/a")
   return value == null || !Number.isFinite(value) ? fallback : value.toLocaleString();
 }
 
-export function compactText(value: string, maxChars: number, marker = "..."): string {
-  if (maxChars === Number.POSITIVE_INFINITY || value.length <= maxChars) {
-    return value;
-  }
-  if (maxChars <= 0) {
-    return "";
-  }
-  if (maxChars <= marker.length) {
-    return marker.slice(0, maxChars);
-  }
-  return `${value.slice(0, maxChars - marker.length).replace(/\s+$/, "")}${marker}`;
-}
-
 export function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }

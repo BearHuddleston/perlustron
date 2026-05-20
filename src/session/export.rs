@@ -275,7 +275,7 @@ fn normalized_assistant_message_event(
         name: None,
         status: None,
         duration_ms: None,
-        summary: compact_text(&message.text, 120),
+        summary: normalize_text(&message.text),
         content: Some(message.text.clone()),
         arguments: None,
         output: None,
@@ -499,7 +499,7 @@ fn render_markdown_report(trace: &AgentTrace, redaction_report: Option<&Redactio
     if trace.insights.inspection_queue.is_empty() {
         out.push_str("- No high-priority findings detected.\n");
     } else {
-        for item in trace.insights.inspection_queue.iter().take(8) {
+        for item in &trace.insights.inspection_queue {
             out.push_str(&format!(
                 "- **{}** `{}`: {}\n",
                 markdown_cell(&item.title),
@@ -561,7 +561,7 @@ fn render_markdown_report(trace: &AgentTrace, redaction_report: Option<&Redactio
                 .or(event.arguments.as_deref())
                 .unwrap_or("");
             out.push_str("```text\n");
-            out.push_str(&compact_text(text, 4_000));
+            out.push_str(&normalize_text(text));
             out.push_str("\n```\n\n");
         }
     }
@@ -611,7 +611,7 @@ fn render_insight_section_html(insights: &TraceInsights) -> String {
     body.push_str("</table>");
     if !insights.inspection_queue.is_empty() {
         body.push_str("<h3>What Should I Inspect First?</h3><ul>");
-        for item in insights.inspection_queue.iter().take(8) {
+        for item in &insights.inspection_queue {
             body.push_str(&format!(
                 "<li><strong>{}</strong> <code>{}</code>: {}</li>",
                 escape_html(&item.title),
@@ -623,7 +623,7 @@ fn render_insight_section_html(insights: &TraceInsights) -> String {
     }
     if !insights.repeated_patterns.is_empty() {
         body.push_str("<h3>Repeated Patterns</h3><ul>");
-        for pattern in insights.repeated_patterns.iter().take(10) {
+        for pattern in &insights.repeated_patterns {
             body.push_str(&format!(
                 "<li>{} x{} on lines {}-{}</li>",
                 escape_html(&pattern.title),
@@ -636,7 +636,7 @@ fn render_insight_section_html(insights: &TraceInsights) -> String {
     }
     if !insights.suspicious_tool_calls.is_empty() {
         body.push_str("<h3>Suspicious Tool Calls</h3><ul>");
-        for call in insights.suspicious_tool_calls.iter().take(10) {
+        for call in &insights.suspicious_tool_calls {
             body.push_str(&format!(
                 "<li>line {} <code>{}</code>: {}</li>",
                 call.call.line_number,
@@ -656,7 +656,7 @@ fn render_file_impact_section_html(insights: &TraceInsights) -> String {
         ("read", insights.file_impact.files_read.as_slice()),
         ("referenced", insights.file_impact.files_referenced.as_slice()),
     ] {
-        for file in files.iter().take(24) {
+        for file in files {
             body.push_str("<tr>");
             push_html_cell(&mut body, class_name);
             push_html_cell(&mut body, &file.path);

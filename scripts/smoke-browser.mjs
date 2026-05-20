@@ -321,19 +321,24 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
     timeout: UI_TIMEOUT_MS,
   });
 
-  const summaryInsights = await page.evaluate(() => ({
-    rows: document.querySelectorAll(".summary-insights .summary-insight").length,
-    hasRawEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
-      (button) => button.textContent?.trim() === "Raw Evidence"
-    ),
-    hasTimelineEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
-      (button) => button.textContent?.trim() === "Timeline Evidence"
-    ),
-    hasTranscriptEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
-      (button) => button.textContent?.trim() === "Transcript Evidence"
-    ),
-  }));
-  assert(summaryInsights.rows > 0 && summaryInsights.rows <= 3, "Summary should expose up to three actionable top insights");
+  const expectedQueuedCount =
+    (await fetchJson(`${server.baseUrl}/api/session?token=${encodeURIComponent(server.token)}`))?.insights?.inspectionQueue?.length ?? 0;
+  const summaryInsights = await page.evaluate((queued) => {
+    return {
+      rows: document.querySelectorAll(".summary-insights .summary-insight").length,
+      queued,
+      hasRawEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
+        (button) => button.textContent?.trim() === "Raw Evidence"
+      ),
+      hasTimelineEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
+        (button) => button.textContent?.trim() === "Timeline Evidence"
+      ),
+      hasTranscriptEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
+        (button) => button.textContent?.trim() === "Transcript Evidence"
+      ),
+    };
+  }, expectedQueuedCount);
+  assert(summaryInsights.rows > 0 && summaryInsights.rows === summaryInsights.queued, "Summary should expose every queued Insight finding");
   assert(summaryInsights.hasRawEvidence, "Summary should expose a Raw Evidence CTA");
   assert(summaryInsights.hasTimelineEvidence, "Summary should expose a Timeline Evidence CTA");
   assert(summaryInsights.hasTranscriptEvidence, "Summary should expose a Transcript Evidence CTA");
@@ -341,9 +346,15 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Raw", null, {
     timeout: UI_TIMEOUT_MS,
   });
+  await page.waitForFunction(() => document.querySelectorAll("#mode-panel-content .virtual-text-line").length > 0, null, {
+    timeout: UI_TIMEOUT_MS,
+  });
 
   const evidence = await page.evaluate(() => {
-    const panelJsonText = document.querySelector("#mode-panel-content pre")?.textContent || "";
+    const virtualJsonText = Array.from(document.querySelectorAll("#mode-panel-content .virtual-text-line"))
+      .map((line) => line.textContent || "")
+      .join("\n");
+    const panelJsonText = document.querySelector("#mode-panel-content pre")?.textContent || virtualJsonText;
     const parseObject = (text) => {
       try {
         const payload = JSON.parse(text);
@@ -358,6 +369,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
       panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim(),
       panelJsonText,
       panelJsonObject: parseObject(panelJsonText),
+      virtualRawViewport: Boolean(document.querySelector("#mode-panel-content .virtual-text-viewport")),
       rawJsonPreviewExists: Boolean(document.querySelector("#raw-json-preview")),
       eventPopupHidden: document.querySelector("#event-popup")?.classList.contains("hidden"),
       visibleUrl: window.location.href,
@@ -366,6 +378,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   assert(evidence.activeMode === "raw", "Open Evidence should route to the Raw evidence surface");
   assert(evidence.panelHidden === false, "Open Evidence should show a visible evidence panel");
   assert(evidence.panelSummary === "Selected event", "Open Evidence should preserve the selected event in Raw mode");
+  assert(evidence.virtualRawViewport, "Open Evidence should use the virtualized Raw text viewer");
   assert(evidence.panelJsonObject, "Open Evidence should expose parseable selected event JSON");
   assert(!evidence.rawJsonPreviewExists, "Removed Raw JSON preview should stay out of the DOM");
   assert(evidence.eventPopupHidden === true, "Open Evidence should not reveal Map-only Event Context outside Map mode");

@@ -95,7 +95,7 @@ fn sanitize_file(input: &Path, output: &Path, profile: RedactionProfile) -> Resu
             Err(error) => json!({
                 "type": "perlustron_malformed_line",
                 "line_number": line_number,
-                "error": compact_text(&error.to_string(), 240),
+                "error": normalize_text(&error.to_string()),
                 "_redactions": [{ "kind": "malformed-line", "line_number": line_number }]
             }),
         };

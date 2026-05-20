@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import { compactText, formatNumber } from "./utils/format";
+import { formatNumber } from "./utils/format";
 
 export interface SafeReferenceSummaryInput {
   role?: string | null;
@@ -48,7 +48,7 @@ const UPPERCASE_SECRET_SENTINEL_PATTERN = /\b[A-Z0-9_]*(?:SECRET|PASSWORD|TOKEN|
 const WINDOWS_USER_PATH_PATTERN = /[A-Za-z]:[\\/]+Users[\\/]+[^\s|"'<>]+/g;
 const POSIX_PRIVATE_PATH_PATTERN = /\/(?:home|Users)\/[^\s|"'<>]+/g;
 
-export function redactionSafeClipboardText(value: string | null | undefined, maxChars = 240): string {
+export function redactionSafeClipboardText(value: string | null | undefined): string {
   const original = normalizeClipboardText(value);
   if (!original) {
     return "";
@@ -62,7 +62,7 @@ export function redactionSafeClipboardText(value: string | null | undefined, max
     .replace(POSIX_PRIVATE_PATH_PATTERN, redactedPathLabel)
     .replace(LONG_BASE64_PATTERN, "[REDACTED_BASE64]")
     .replace(UPPERCASE_SECRET_SENTINEL_PATTERN, "[REDACTED_PRIVATE_TEXT]");
-  return compactText(redacted, maxChars);
+  return redacted;
 }
 
 export function safeReferenceSummary(input: SafeReferenceSummaryInput): string {
@@ -70,12 +70,12 @@ export function safeReferenceSummary(input: SafeReferenceSummaryInput): string {
     safeField(input.role),
     safeField(input.eventType),
     input.toolName ? `tool: ${safeField(input.toolName)}` : "",
-    input.filePath ? `path: ${redactionSafeClipboardText(input.filePath, 96)}` : "",
+    input.filePath ? `path: ${redactionSafeClipboardText(input.filePath)}` : "",
     input.status ? `status: ${safeField(input.status)}` : "",
   ].filter(Boolean);
   const rawSummary = normalizeClipboardText(input.rawSummary);
   if (rawSummary) {
-    const safeSummary = redactionSafeClipboardText(rawSummary, Number.POSITIVE_INFINITY);
+    const safeSummary = redactionSafeClipboardText(rawSummary);
     parts.push(rawSummary === safeSummary ? "detail: omitted for safe sharing" : "detail: redacted for safe sharing");
   }
   return parts.length ? parts.join("; ") : "event summary unavailable";
@@ -88,7 +88,7 @@ export function copySafeReferenceText(input: CopySafeReferenceInput): string {
     input.lineNumber !== null && input.lineNumber !== undefined ? `line: ${input.lineNumber}` : null,
     input.eventIndex !== null && input.eventIndex !== undefined ? `event_index: ${input.eventIndex}` : null,
     input.kind ? `kind: ${safeField(input.kind)}` : null,
-    input.summary ? `summary: ${redactionSafeClipboardText(input.summary, 220)}` : null,
+    input.summary ? `summary: ${redactionSafeClipboardText(input.summary)}` : null,
     `perlustron: parser ${safeField(input.parserVersion || "unknown")} / schema ${safeField(input.schemaVersion || "unknown")}`,
     "caveat: copy-safe reference only; review raw logs separately before sharing raw content",
   ]
@@ -101,15 +101,15 @@ export function copySafeShareSummaryText(input: CopySafeShareSummaryInput): stri
   return [
     "Perlustron copy-safe share summary",
     input.source ? `source: ${safeField(input.source)}` : null,
-    input.sessionName ? `session: ${redactionSafeClipboardText(input.sessionName, 140)}` : null,
+    input.sessionName ? `session: ${redactionSafeClipboardText(input.sessionName)}` : null,
     `activity: ${formatNumber(input.totalTurns, "unknown")} turns / ${formatNumber(input.callCount, "unknown")} tool calls / ${formatNumber(input.fileChangeCount, "unknown")} file changes`,
     input.latestEventIndex !== null && input.latestEventIndex !== undefined ? `latest_event_index: ${input.latestEventIndex}` : null,
-    input.cliContext ? `cli: ${redactionSafeClipboardText(input.cliContext, 120)}` : null,
+    input.cliContext ? `cli: ${redactionSafeClipboardText(input.cliContext)}` : null,
     `perlustron: parser ${safeField(input.parserVersion || "unknown")} / schema ${safeField(input.schemaVersion || "unknown")}`,
     `raw_logs: ${rawStatus}`,
-    `raw_caution: ${redactionSafeClipboardText(input.rawLogCaution || "Raw logs can contain prompts, paths, tool output, images, and credentials.", 180)}`,
+    `raw_caution: ${redactionSafeClipboardText(input.rawLogCaution || "Raw logs can contain prompts, paths, tool output, images, and credentials.")}`,
     `safe_surfaces: sanitized graph/export/copy-safe references are safer than raw logs, but still require human judgment before external sharing`,
-    `sanitized_graph: ${redactionSafeClipboardText(input.sanitizedGraphNote || "Use sanitized graph/export surfaces for review-friendly sharing.", 180)}`,
+    `sanitized_graph: ${redactionSafeClipboardText(input.sanitizedGraphNote || "Use sanitized graph/export surfaces for review-friendly sharing.")}`,
     `redactions: ${formatNumber(input.redactedFieldCount, "unknown")} fields; images: ${formatNumber(input.imageCount, "unknown")}; api_token_required: ${input.apiTokenRequired ? "yes (value not copied)" : "no"}`,
   ]
     .filter((line): line is string => Boolean(line))
@@ -121,7 +121,7 @@ function normalizeClipboardText(value: string | null | undefined): string {
 }
 
 function safeField(value: string | null | undefined): string {
-  return redactionSafeClipboardText(value, 120);
+  return redactionSafeClipboardText(value);
 }
 
 function redactedPathLabel(value: string): string {

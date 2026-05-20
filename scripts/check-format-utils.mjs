@@ -14,7 +14,6 @@ const app = readFileSync(appPath, "utf8");
 const { expect, expectEqual, finish, hasFailures } = createCheck("Format utilities");
 
 const expectedExports = [
-  "compactText",
   "durationLabel",
   "escapeHtml",
   "formatBytes",
@@ -84,9 +83,6 @@ try {
   expectEqual(format.formatNumber(null), "n/a", "formatNumber should use n/a as the default fallback");
   expectEqual(format.formatNumber(null, "unknown"), "unknown", "formatNumber should allow a custom fallback");
   expectEqual(format.formatNumber(1234), (1234).toLocaleString(), "formatNumber should use locale grouping for numbers");
-  expectEqual(format.compactText("abcdefghijklmnop", 10), "abcdefg...", "compactText should keep marker within max length");
-  expectEqual(format.compactText("abcdefghijklmnop", 2), "..", "compactText should handle tiny limits");
-  expectEqual(format.compactText("short", 10), "short", "compactText should preserve short values");
   expectEqual(format.escapeHtml('&<>"\''), "&amp;&lt;&gt;&quot;'", "escapeHtml should preserve the existing escaped characters");
   expectEqual(format.formatSessionModified("not-a-date"), "", "formatSessionModified should hide invalid dates");
 } finally {
