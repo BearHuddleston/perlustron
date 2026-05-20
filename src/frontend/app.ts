@@ -22,6 +22,12 @@ const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 type SessionSource = "codex" | "claude";
 type Mode = "overview" | "inspect";
 type AppMode = "summary" | "map" | "timeline" | "transcript" | "health" | "insights" | "diff" | "raw" | "export" | "settings";
+type AppModeMaturity = "beta" | "experimental" | "advanced";
+interface AppModeMaturityInfo {
+  label: string;
+  maturity: AppModeMaturity;
+  title: string;
+}
 type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction";
 type MetadataIcon = "codex" | "source" | "git" | "policy" | "model" | "tools";
 type ViewAction = "zoom-in" | "zoom-out" | "two-d" | "overview";
@@ -46,6 +52,67 @@ const RAW_TEXT_FULL_RENDER_LINE_LIMIT = 3_000;
 const RAW_TEXT_OVERSCAN_LINES = 80;
 const VIRTUAL_LIST_OVERSCAN_PX = 900;
 const VIRTUAL_LIST_WIDTH_FALLBACK = 840;
+const SUMMARY_INSPECTION_QUEUE_LIMIT = 5;
+const INSIGHTS_PRIORITY_SIGNAL_LIMIT = 10;
+const INSIGHTS_FILE_CHURN_LIMIT = 12;
+const INSIGHTS_CARD_ITEM_LIMIT = 12;
+const INSIGHTS_TEXT_PREVIEW_LIMIT = 180;
+const INSIGHT_TITLE_REPEATED_FILE_ACTIVITY = "Repeated file activity";
+const INSIGHT_TITLE_SUSPICIOUS_TOOL_CALL = "Suspicious tool call";
+const INSIGHT_TITLE_REPEATED_TOOL_CALL_PATTERN = "Repeated tool-call pattern";
+const INSIGHT_SEVERITY_ORDER = ["critical", "high", "warning", "info", "low"] as const;
+const APP_MODE_MATURITY: Record<AppMode, AppModeMaturityInfo> = {
+  summary: {
+    label: "Beta",
+    maturity: "beta",
+    title: "Beta view: available for early use while the interface continues to mature.",
+  },
+  map: {
+    label: "Beta",
+    maturity: "beta",
+    title: "Beta view: available for early use while the interface continues to mature.",
+  },
+  timeline: {
+    label: "Beta",
+    maturity: "beta",
+    title: "Beta view: available for early use while the interface continues to mature.",
+  },
+  transcript: {
+    label: "Beta",
+    maturity: "beta",
+    title: "Beta view: available for early use while the interface continues to mature.",
+  },
+  health: {
+    label: "Advanced",
+    maturity: "advanced",
+    title: "Advanced view: intended for audit, debugging, or export workflows.",
+  },
+  insights: {
+    label: "Experimental",
+    maturity: "experimental",
+    title: "Experimental view: useful for beta feedback, but verify important conclusions.",
+  },
+  diff: {
+    label: "Experimental",
+    maturity: "experimental",
+    title: "Experimental view: useful for beta feedback, but verify important conclusions.",
+  },
+  raw: {
+    label: "Advanced",
+    maturity: "advanced",
+    title: "Advanced view: intended for audit, debugging, or export workflows.",
+  },
+  export: {
+    label: "Advanced",
+    maturity: "advanced",
+    title: "Advanced view: intended for audit, debugging, or export workflows.",
+  },
+  settings: {
+    label: "Advanced",
+    maturity: "advanced",
+    title: "Advanced view: intended for audit, debugging, or export workflows.",
+  },
+};
 const TIMELINE_ROW_MIN_HEIGHT = 88;
 const TIMELINE_ROW_MAX_HEIGHT = 180;
 const TRANSCRIPT_TURN_ROW_HEIGHT = 56;
@@ -435,6 +502,19 @@ interface TraceInsights {
 }
 
 type InspectionQueueItem = TraceInsights["inspectionQueue"][number];
+
+interface InsightPriorityGroup {
+  title: string;
+  severity: string;
+  confidence: string;
+  directness: string;
+  summary: string;
+  explanation: string;
+  lineNumbers: number[];
+  redactionSafeSummary: string;
+  representative: InspectionQueueItem;
+  count: number;
+}
 
 interface InsightEventLink {
   id: string;
@@ -969,6 +1049,7 @@ const searchInput = queryRequired<HTMLInputElement>("#search-input");
 const modePanel = queryRequired<HTMLElement>("#mode-panel");
 const modePanelKicker = queryRequired<HTMLElement>("#mode-panel-kicker");
 const modePanelTitle = queryRequired<HTMLElement>("#mode-panel-title");
+const modePanelStatus = queryRequired<HTMLElement>("#mode-panel-status");
 const modePanelSummary = queryRequired<HTMLElement>("#mode-panel-summary");
 const modePanelFilters = queryRequired<HTMLElement>("#mode-panel-filters");
 const modePanelContent = queryRequired<HTMLElement>("#mode-panel-content");
@@ -1054,9 +1135,6 @@ const OVERVIEW_SUBAGENT_LEAD_IN_LAUNCH_INSET_X = 1.85;
 const OVERVIEW_SUBAGENT_LEAD_IN_RESULT_OFFSET_X = 2.15;
 const OVERVIEW_SUBAGENT_LEAD_IN_RESULT_DROP_Z = 4.15;
 const OVERVIEW_SUBAGENT_CHILD_START_DROP_Z = 2.1;
-const OVERVIEW_SUBAGENT_DEPTH_Z = OVERVIEW_SUBAGENT_LEAD_IN_RESULT_DROP_Z + OVERVIEW_SUBAGENT_CHILD_START_DROP_Z;
-const OVERVIEW_SUBAGENT_GROUP_DEPTH_Z = 3.8;
-const OVERVIEW_SUBAGENT_GROUP_ROW_DEPTH_Z = 0.74;
 const OVERVIEW_SUBAGENT_GROUP_SPINE_Z_STEP = 0.2;
 const OVERVIEW_SUBAGENT_GROUP_SPIRAL_RADIUS = 0.86;
 const OVERVIEW_SUBAGENT_GROUP_SPIRAL_RADIUS_GROWTH = 0.03;
@@ -2329,6 +2407,25 @@ interface FileLayoutAnchor {
   fileAxisZ?: number;
 }
 
+interface OverviewSubagentBranchFrame {
+  side: -1 | 1;
+  lane: number;
+  branchX: number;
+  branchY: number;
+  branchZ: number;
+  launchX: number;
+  resultX: number;
+  resultZ: number;
+  childStartZ: number;
+}
+
+interface SubagentFileAssignment {
+  file: CallNode;
+  parent: FileLayoutAnchor;
+  siblingIndex: number;
+  siblingCount: number;
+}
+
 interface TranscriptEntry {
   label: string;
   title: string;
@@ -2551,15 +2648,136 @@ function overviewSubagentDepth(subagentBranches: SubagentBranch[]): number {
   if (!subagentBranches.length) {
     return 0;
   }
-  const childDepth = subagentBranches.reduce((maxDepth, branch, branchIndex) => {
-    const lane = Math.floor(branchIndex / 2);
-    const branchDepth = subagentChildGroups(branch.nodes).reduce(
-      (depth, group) => depth + subagentGroupDepth(group),
-      lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Z_GAP
-    );
-    return Math.max(maxDepth, branchDepth);
-  }, 0);
-  return OVERVIEW_SUBAGENT_BAND_OFFSET_Z + OVERVIEW_SUBAGENT_DEPTH_Z + childDepth;
+  return subagentBranches.reduce(
+    (maxDepth, branch, branchIndex) => Math.max(maxDepth, overviewSubagentBranchDepth(branch, branchIndex)),
+    0
+  );
+}
+
+function overviewSubagentBranchDepth(branch: SubagentBranch, branchIndex: number): number {
+  const frame = overviewSubagentBranchFrame(branch, branchIndex, 0);
+  const minZ = Math.min(
+    frame.branchZ,
+    branch.result ? frame.resultZ : frame.branchZ,
+    branch.nodes.length ? overviewSubagentChildMinZ(branch.nodes, frame.branchX, frame.branchY, frame.childStartZ) : frame.branchZ
+  );
+  return Math.abs(Math.min(0, minZ));
+}
+
+function overviewSubagentBranchFrame(branch: SubagentBranch, branchIndex: number, promptZ: number): OverviewSubagentBranchFrame {
+  const side: -1 | 1 = branchIndex % 2 === 0 ? 1 : -1;
+  const lane = Math.floor(branchIndex / 2);
+  const branchX =
+    side *
+    Math.min(OVERVIEW_SUBAGENT_BRANCH_MAX_X, OVERVIEW_SUBAGENT_BRANCH_BASE_X + lane * OVERVIEW_SUBAGENT_BRANCH_LANE_X_GAP);
+  const branchZ = promptZ - OVERVIEW_SUBAGENT_BAND_OFFSET_Z - lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Z_GAP;
+  const resultZ = branchZ - OVERVIEW_SUBAGENT_LEAD_IN_RESULT_DROP_Z;
+  return {
+    side,
+    lane,
+    branchX,
+    branchY:
+      OVERVIEW_PROMPT_Y -
+      1.2 -
+      (branchIndex % 2) * OVERVIEW_SUBAGENT_BRANCH_SIDE_Y_GAP -
+      lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Y_DROP,
+    branchZ,
+    launchX: branchX - side * OVERVIEW_SUBAGENT_LEAD_IN_LAUNCH_INSET_X,
+    resultX: branchX + side * OVERVIEW_SUBAGENT_LEAD_IN_RESULT_OFFSET_X,
+    resultZ,
+    childStartZ: (branch.result ? resultZ : branchZ) - OVERVIEW_SUBAGENT_CHILD_START_DROP_Z,
+  };
+}
+
+function overviewSubagentChildMinZ(children: CallNode[], branchX: number, branchY: number, startZ: number): number {
+  const groups = subagentChildGroups(children);
+  let minZ = startZ;
+  let trunkAnchor: FileLayoutAnchor = {
+    id: "",
+    eventIndex: Number.NEGATIVE_INFINITY,
+    target: new THREE.Vector3(branchX, branchY, startZ),
+    fileAxisX: branchX,
+    fileAxisZ: startZ,
+  };
+  let spineUnitIndex = 0;
+
+  groups.forEach((group) => {
+    const units = subagentSpineUnits(group);
+    units.forEach((unit) => {
+      const currentSpineUnitIndex = spineUnitIndex;
+      const spineTarget = subagentGroupTarget(branchX, branchY, startZ, currentSpineUnitIndex);
+      const spineAxisZ = subagentSpineAxisZ(startZ, currentSpineUnitIndex);
+      let unitParentAnchor: FileLayoutAnchor = {
+        ...trunkAnchor,
+        eventIndex: unit.spine?.eventIndex ?? trunkAnchor.eventIndex,
+        target: spineTarget,
+        fileAxisX: branchX,
+        fileAxisZ: spineAxisZ,
+      };
+      const fileAnchors: FileLayoutAnchor[] = [unitParentAnchor];
+
+      if (unit.spine) {
+        unitParentAnchor = {
+          id: unit.spine.id,
+          eventIndex: unit.spine.eventIndex,
+          target: spineTarget,
+          fileAxisX: branchX,
+          fileAxisZ: spineAxisZ,
+        };
+        fileAnchors[0] = unitParentAnchor;
+        trunkAnchor = unitParentAnchor;
+        minZ = Math.min(minZ, spineTarget.z);
+      }
+
+      const childFrame = overviewRadialFrame(spineTarget, spineAxisZ, branchX, branchX < 0 ? -1 : 1);
+      unit.children.forEach((child, childIndex) => {
+        const childTarget = subagentGroupedChildTarget(spineTarget, childFrame, childIndex, unit.children.length);
+        const childAnchor: FileLayoutAnchor = {
+          id: child.id,
+          eventIndex: child.eventIndex,
+          target: childTarget,
+          fileAxisX: branchX,
+          fileAxisZ: spineAxisZ,
+        };
+        fileAnchors.push(childAnchor);
+        minZ = Math.min(minZ, childTarget.z);
+      });
+
+      minZ = Math.min(minZ, overviewSubagentFileMinZ(unit.files, fileAnchors, spineAxisZ));
+      spineUnitIndex += 1;
+    });
+  });
+
+  return minZ;
+}
+
+function overviewSubagentFileMinZ(files: CallNode[], fileAnchors: FileLayoutAnchor[], axisZ: number): number {
+  if (!files.length) {
+    return axisZ;
+  }
+  let minZ = axisZ;
+  subagentFileAssignments(files, fileAnchors).forEach(({ parent, siblingIndex, siblingCount }) => {
+    minZ = Math.min(minZ, overviewFileChangeTarget(parent, axisZ, siblingIndex, siblingCount).z);
+  });
+
+  return minZ;
+}
+
+function subagentFileAssignments(files: CallNode[], fileAnchors: FileLayoutAnchor[]): SubagentFileAssignment[] {
+  const filesByParent = new Map<string, CallNode[]>();
+  const assignments = files.map((file): Omit<SubagentFileAssignment, "siblingCount"> => {
+    const parent = subagentFileAnchorForEvent(file.eventIndex, fileAnchors);
+    const siblings = filesByParent.get(parent.id) ?? [];
+    const siblingIndex = siblings.length;
+    siblings.push(file);
+    filesByParent.set(parent.id, siblings);
+    return { file, parent, siblingIndex };
+  });
+
+  return assignments.map((assignment) => ({
+    ...assignment,
+    siblingCount: filesByParent.get(assignment.parent.id)?.length ?? 1,
+  }));
 }
 
 function outwardSide(target: THREE.Vector3): -1 | 1 {
@@ -2799,20 +3017,7 @@ function buildNodes(source: SessionGraph): BuiltScene {
 
     let subagentChildIndexCursor = callIndexCursor + subagentBranches.length * 2;
     subagentBranches.forEach((branch, branchIndex) => {
-      const side = branchIndex % 2 === 0 ? 1 : -1;
-      const lane = Math.floor(branchIndex / 2);
-      const branchX =
-        side *
-        Math.min(OVERVIEW_SUBAGENT_BRANCH_MAX_X, OVERVIEW_SUBAGENT_BRANCH_BASE_X + lane * OVERVIEW_SUBAGENT_BRANCH_LANE_X_GAP);
-      const branchZ = promptZ - OVERVIEW_SUBAGENT_BAND_OFFSET_Z - lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Z_GAP;
-      const resultZ = branchZ - OVERVIEW_SUBAGENT_LEAD_IN_RESULT_DROP_Z;
-      const branchY =
-        OVERVIEW_PROMPT_Y -
-        1.2 -
-        (branchIndex % 2) * OVERVIEW_SUBAGENT_BRANCH_SIDE_Y_GAP -
-        lane * OVERVIEW_SUBAGENT_BRANCH_LANE_Y_DROP;
-      const launchX = branchX - side * OVERVIEW_SUBAGENT_LEAD_IN_LAUNCH_INSET_X;
-      const resultX = branchX + side * OVERVIEW_SUBAGENT_LEAD_IN_RESULT_OFFSET_X;
+      const branchFrame = overviewSubagentBranchFrame(branch, branchIndex, promptZ);
       const branchChildStart = subagentChildIndexCursor;
       subagentChildIndexCursor += branch.nodes.length;
 
@@ -2822,14 +3027,14 @@ function buildNodes(source: SessionGraph): BuiltScene {
           promptIndex,
           branch.launch,
           callIndexCursor,
-          new THREE.Vector3(launchX, branchY, branchZ),
+          new THREE.Vector3(branchFrame.launchX, branchFrame.branchY, branchFrame.branchZ),
           freshUntil,
           {
             kind: "subagent",
             title: subagentBranchTitle(branch.launch),
             baseScale: 0.52,
-            fileAxisX: branchX,
-            fileAxisZ: branchZ,
+            fileAxisX: branchFrame.branchX,
+            fileAxisZ: branchFrame.branchZ,
           }
         );
         allNodes.push(launchNode);
@@ -2843,14 +3048,18 @@ function buildNodes(source: SessionGraph): BuiltScene {
           promptIndex,
           branch.result,
           callIndexCursor,
-          new THREE.Vector3(resultX, branchY - 0.34, branch.launch ? resultZ : branchZ),
+          new THREE.Vector3(
+            branchFrame.resultX,
+            branchFrame.branchY - 0.34,
+            branch.launch ? branchFrame.resultZ : branchFrame.branchZ
+          ),
           freshUntil,
           {
             kind: "subagent-result",
             title: subagentBranchTitle(branch.result),
             baseScale: 0.38,
-            fileAxisX: branchX,
-            fileAxisZ: branch.launch ? resultZ : branchZ,
+            fileAxisX: branchFrame.branchX,
+            fileAxisZ: branch.launch ? branchFrame.resultZ : branchFrame.branchZ,
           }
         );
         allNodes.push(resultNode);
@@ -2866,9 +3075,9 @@ function buildNodes(source: SessionGraph): BuiltScene {
         parentId: branch.result?.id ?? branch.launch?.id ?? promptNode.id,
         prompt,
         promptIndex,
-        branchX,
-        branchY,
-        startZ: (branch.result ? resultZ : branchZ) - OVERVIEW_SUBAGENT_CHILD_START_DROP_Z,
+        branchX: branchFrame.branchX,
+        branchY: branchFrame.branchY,
+        startZ: branchFrame.childStartZ,
         callIndexStart: branchChildStart,
         freshUntil,
         allNodes,
@@ -3090,19 +3299,8 @@ function addSubagentFileNodes({
   allNodes: SceneNode[];
   allConnectors: Connector[];
 }): void {
-  const filesByParent = new Map<string, CallNode[]>();
-  const fileAssignments = files.map((file): { file: CallNode; parent: FileLayoutAnchor; siblingIndex: number } => {
-    const parent = subagentFileAnchorForEvent(file.eventIndex, fileAnchors);
-    const siblings = filesByParent.get(parent.id) ?? [];
-    const siblingIndex = siblings.length;
-    siblings.push(file);
-    filesByParent.set(parent.id, siblings);
-    return { file, parent, siblingIndex };
-  });
-
-  fileAssignments.forEach(({ file, parent, siblingIndex }, assignmentIndex) => {
-    const siblings = filesByParent.get(parent.id) ?? [file];
-    const fileTarget = overviewFileChangeTarget(parent, axisZ, siblingIndex, siblings.length);
+  subagentFileAssignments(files, fileAnchors).forEach(({ file, parent, siblingIndex, siblingCount }, assignmentIndex) => {
+    const fileTarget = overviewFileChangeTarget(parent, axisZ, siblingIndex, siblingCount);
     const fileNode = callSceneNode(
       prompt,
       promptIndex,
@@ -3120,13 +3318,6 @@ function addSubagentFileNodes({
     allNodes.push(fileNode);
     allConnectors.push(overviewFileChangeConnector(parent.id, fileNode.id, parent.target));
   });
-}
-
-function subagentGroupDepth(group: SubagentChildGroup): number {
-  return subagentSpineUnits(group).reduce((depth, unit) => {
-    const rows = Math.max(1, Math.ceil(unit.children.length / OVERVIEW_SUBAGENT_GROUPED_CALLS_PER_ROW));
-    return depth + OVERVIEW_SUBAGENT_GROUP_DEPTH_Z + Math.max(0, rows - 1) * OVERVIEW_SUBAGENT_GROUP_ROW_DEPTH_Z;
-  }, 0);
 }
 
 function subagentSpineUnits(group: SubagentChildGroup): SubagentSpineUnit[] {
@@ -3339,9 +3530,11 @@ function subagentBranchesForCalls(calls: CallNode[]): SubagentBranch[] {
   const results = calls.filter(isSubagentResultCall);
   const unusedResults = new Set(results);
   const resultsByAgentId = new Map<string, CallNode[]>();
+  const resultAgentIds = new Map<string, string | null>();
 
   results.forEach((result) => {
     const agentId = subagentAgentId(result);
+    resultAgentIds.set(result.id, agentId);
     if (!agentId) {
       return;
     }
@@ -3350,24 +3543,33 @@ function subagentBranchesForCalls(calls: CallNode[]): SubagentBranch[] {
     resultsByAgentId.set(agentId, matches);
   });
 
-  const branches: Array<SubagentBranch & { order: number }> = launches.map((launch, index) => {
-    const agentId = subagentAgentId(launch);
-    const matchedByAgent = agentId ? resultsByAgentId.get(agentId)?.find((result) => unusedResults.has(result)) : null;
-    const matchedByOrder =
-      matchedByAgent ??
-      results.find((result) => unusedResults.has(result) && result.eventIndex >= launch.eventIndex) ??
-      null;
-    if (matchedByOrder) {
-      unusedResults.delete(matchedByOrder);
-    }
-    return {
-      launch,
-      result: matchedByOrder,
-      nodes: subagentNodesForBranch(launch, matchedByOrder),
-      eventIndex: Math.min(launch.eventIndex, matchedByOrder?.eventIndex ?? launch.eventIndex),
-      order: index,
-    };
-  });
+  const branches: Array<SubagentBranch & { order: number }> = launches
+    .map((launch, index) => {
+      const agentId = subagentAgentId(launch);
+      const matchedByAgent = agentId
+        ? resultsByAgentId.get(agentId)?.find((result) => unusedResults.has(result) && result.eventIndex >= launch.eventIndex)
+        : null;
+      const matchedByOrder =
+        matchedByAgent ??
+        results.find(
+          (result) =>
+            unusedResults.has(result) &&
+            result.eventIndex >= launch.eventIndex &&
+            canFallbackPairSubagentResult(agentId, resultAgentIds.get(result.id) ?? null)
+        ) ??
+        null;
+      if (matchedByOrder) {
+        unusedResults.delete(matchedByOrder);
+      }
+      return {
+        launch,
+        result: matchedByOrder,
+        nodes: subagentNodesForBranch(launch, matchedByOrder),
+        eventIndex: Math.min(launch.eventIndex, matchedByOrder?.eventIndex ?? launch.eventIndex),
+        order: index,
+      };
+    })
+    .filter(hasRenderableSubagentBranchContent);
 
   unusedResults.forEach((result) => {
     branches.push({
@@ -3380,6 +3582,14 @@ function subagentBranchesForCalls(calls: CallNode[]): SubagentBranch[] {
   });
 
   return branches.sort((a, b) => a.eventIndex - b.eventIndex || a.order - b.order);
+}
+
+function canFallbackPairSubagentResult(launchAgentId: string | null, resultAgentId: string | null): boolean {
+  return resultAgentId === null || launchAgentId === resultAgentId;
+}
+
+function hasRenderableSubagentBranchContent(branch: SubagentBranch): boolean {
+  return Boolean(branch.result || branch.nodes.length);
 }
 
 function isSubagentLaunchCall(call: CallNode): boolean {
@@ -5701,7 +5911,16 @@ function setActiveButton(buttons: Iterable<HTMLButtonElement>, isActive: (button
 }
 
 function syncAppModeControls(): void {
-  setActiveButton(modeButtons, (button) => button.dataset.appMode === activeAppMode);
+  modeButtons.forEach((button) => {
+    const buttonMode = button.dataset.appMode as AppMode | undefined;
+    if (buttonMode && APP_MODE_SET.has(buttonMode)) {
+      const status = appModeMaturity(buttonMode);
+      button.dataset.status = status.label;
+      button.dataset.maturity = status.maturity;
+      button.title = status.title;
+    }
+    button.classList.toggle("active", buttonMode === activeAppMode);
+  });
   settingsButton.classList.toggle("active", activeAppMode === "settings");
   settingsButton.setAttribute("aria-pressed", String(activeAppMode === "settings"));
 }
@@ -5772,6 +5991,7 @@ function renderActiveModePanel(): void {
   cleanupModePanelRender();
   modePanelKicker.textContent = sourceLabel(graph?.source ?? activeSource);
   modePanelTitle.textContent = appModeTitle(activeAppMode);
+  syncModePanelStatus(activeAppMode);
   modePanelFilters.classList.toggle("hidden", activeAppMode !== "timeline");
   if (!graph) {
     modePanelSummary.textContent = "Waiting for session data";
@@ -5811,6 +6031,17 @@ function renderActiveModePanel(): void {
 
 function appModeTitle(appMode: AppMode): string {
   return appMode.charAt(0).toUpperCase() + appMode.slice(1);
+}
+
+function appModeMaturity(appMode: AppMode): AppModeMaturityInfo {
+  return APP_MODE_MATURITY[appMode];
+}
+
+function syncModePanelStatus(appMode: AppMode): void {
+  const status = appModeMaturity(appMode);
+  modePanelStatus.textContent = status.label;
+  modePanelStatus.title = status.title;
+  modePanelStatus.className = `mode-status-label ${status.maturity}`;
 }
 
 function renderSummaryModePanel(): void {
@@ -5950,8 +6181,9 @@ function summaryFact(title: string, facts: [string, string][]): HTMLElement {
 function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
   const card = modeCard("Inspect First");
   card.classList.add("summary-insights");
-  const items = insights.inspectionQueue;
-  if (!items.length) {
+  const totalItems = insights.inspectionQueue.length;
+  const items = insights.inspectionQueue.slice(0, SUMMARY_INSPECTION_QUEUE_LIMIT);
+  if (!totalItems) {
     card.append(
       modeParagraph("No high-priority findings detected. Parser health and raw inspection remain available for audit."),
       summaryInsightActionRow([modeButton("Open Insights", () => selectAppMode("insights")), modeButton("Audit Raw", () => selectAppMode("raw"))])
@@ -5959,12 +6191,16 @@ function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
     return card;
   }
 
-  const intro = modeParagraph("Top queued findings are ready for inspect-first review; each evidence action routes to an existing panel and falls back clearly when no event line is logged.");
+  const intro = modeParagraph(
+    totalItems > items.length
+      ? `Showing the first ${formatNumber(items.length)} of ${formatNumber(totalItems)} queued findings for inspect-first review.`
+      : "Top queued findings are ready for inspect-first review; each evidence action routes to an existing panel and falls back clearly when no event line is logged."
+  );
   const list = document.createElement("div");
-  list.className = "summary-insight-list";
+  list.className = "mode-linked-list";
   items.forEach((item, index) => {
     const row = document.createElement("article");
-    row.className = `summary-insight severity-${item.severity}`;
+    row.className = `mode-linked-row severity-${item.severity}`;
     const body = document.createElement("div");
     const title = document.createElement("strong");
     title.textContent = `${index + 1}. ${item.title}`;
@@ -6789,7 +7025,11 @@ function renderHealthModePanel(): void {
 
 function renderInsightsModePanel(): void {
   const insights = currentGraph().insights;
-  modePanelSummary.textContent = `${insights.inspectionQueue.length} queued / ${insights.repeatedPatterns.length} repeated / ${insights.suspiciousToolCalls.length} suspicious`;
+  const priorityCandidates = insightPriorityCandidates(insights);
+  const prioritySignals = priorityCandidates.slice(0, INSIGHTS_PRIORITY_SIGNAL_LIMIT);
+  const prioritySignalCount = priorityCandidates.length;
+  const fileChurnPatterns = insightFileChurnPatterns(insights);
+  modePanelSummary.textContent = `${prioritySignalCount} priority signal groups / ${fileChurnPatterns.length} file-churn patterns / ${insights.suspiciousToolCalls.length} suspicious calls`;
   const fragment = document.createDocumentFragment();
   const actions = document.createElement("div");
   actions.className = "mode-actions";
@@ -6797,25 +7037,37 @@ function renderInsightsModePanel(): void {
     modeButton("Copy Insight Summary", () => copyText(insightSummaryText(insights), "Insight summary copied"))
   );
   fragment.append(actions);
-  const queue = modeCard("What Should I Inspect First?");
-  queue.append(renderInspectionQueue(insights));
+  const takeaway = modeCard("How To Read This", [
+    "Insights are heuristic signals from logged events only; they are leads, not root cause.",
+    "Repeated event rows are grouped so the panel shows signal categories before backing detail.",
+    "Start with Priority Signals. Expand File Churn only when you need audit detail for repeated path activity.",
+  ]);
+  takeaway.classList.add("mode-takeaway");
+  fragment.append(takeaway);
+  const queue = modeCard("Priority Signals");
+  queue.append(renderInspectionQueue(insights, prioritySignals, prioritySignalCount));
   fragment.append(queue);
+  const fileChurn = renderFileChurnDetails(insights, fileChurnPatterns);
+  if (fileChurn) {
+    fragment.append(fileChurn);
+  }
   const grid = document.createElement("div");
   grid.className = "mode-card-grid";
+  const repeatedToolPatterns = insights.repeatedPatterns.filter((pattern) => pattern.patternType !== "file_activity");
   grid.append(
     modeCard(
-      "Failure Chain",
+      "Error Timeline",
       insights.failureChain
         ? [
             `First logged error-like event: line ${insights.failureChain.firstLoggedError.lineNumber} - ${insights.failureChain.firstLoggedError.title}`,
-            `Possible retries: ${insights.failureChain.subsequentRetries.length}`,
+            `Later retry-like events: ${insights.failureChain.subsequentRetries.length}`,
             `File changes after first error: ${insights.failureChain.fileChangesAfterFirstError.length}`,
-            `Final logged outcome: ${insights.failureChain.finalOutcome}`,
+            `Final logged outcome: ${compactInsightText(insights.failureChain.finalOutcome)}`,
           ]
         : ["No logged error-like event detected."]
     ),
-    modeCard("Repeated Patterns", insights.repeatedPatterns.map((pattern) => `${pattern.patternType} x${pattern.count} lines ${pattern.firstLine}-${pattern.lastLine}: ${pattern.key}`)),
-    modeCard("Suspicious Tool Calls", insights.suspiciousToolCalls.map((call) => `Line ${call.call.lineNumber} ${call.toolName}: ${call.reason}`)),
+    modeCard("Repeated Tool Patterns", repeatedToolPatternSummaryLines(repeatedToolPatterns)),
+    modeCard("Suspicious Tool Calls", suspiciousToolCallSummaryLines(insights.suspiciousToolCalls)),
     modeCard("Context Pressure", [
       insights.contextPressure.status,
       insights.contextPressure.explanation,
@@ -6826,7 +7078,9 @@ function renderInsightsModePanel(): void {
       `Edited: ${insights.fileImpact.filesEdited.length}`,
       `Read: ${insights.fileImpact.filesRead.length}`,
       `Referenced: ${insights.fileImpact.filesReferenced.length}`,
-      ...insights.fileImpact.filesEdited.map((file) => `${file.path} (${file.count})`),
+      `Top edited: ${fileCountSummary(insights.fileImpact.filesEdited)}`,
+      `Top read: ${fileCountSummary(insights.fileImpact.filesRead)}`,
+      `Top referenced: ${fileCountSummary(insights.fileImpact.filesReferenced)}`,
     ]),
     modeCard("Approval And Sandbox", insights.approvalFriction.map((note) => `${note.severity}: ${note.title}`))
   );
@@ -7076,34 +7330,292 @@ function modeCode(text: string): HTMLElement {
   return code;
 }
 
-function renderInspectionQueue(insights: TraceInsights): HTMLElement {
-  if (!insights.inspectionQueue.length) {
-    return modeEmpty("No high-priority findings detected. Parser health and raw inspection remain available.");
+function insightFileChurnPatterns(insights: TraceInsights): TraceInsights["repeatedPatterns"] {
+  return insights.repeatedPatterns.filter((pattern) => pattern.patternType === "file_activity");
+}
+
+function isPriorityInspectionItem(item: InspectionQueueItem): boolean {
+  return item.title !== INSIGHT_TITLE_REPEATED_FILE_ACTIVITY && (item.severity === "high" || item.severity === "warning");
+}
+
+function insightPriorityCandidateItems(insights: TraceInsights): InspectionQueueItem[] {
+  const priorityItems = insights.inspectionQueue.filter(isPriorityInspectionItem);
+  if (priorityItems.length) {
+    return priorityItems;
   }
+  return insights.inspectionQueue.filter((item) => item.title !== INSIGHT_TITLE_REPEATED_FILE_ACTIVITY);
+}
+
+function insightPriorityCandidates(insights: TraceInsights): InsightPriorityGroup[] {
+  const groups = new Map<string, InspectionQueueItem[]>();
+  insightPriorityCandidateItems(insights).forEach((item) => {
+    const key = insightPriorityGroupKey(item);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.push(item);
+    } else {
+      groups.set(key, [item]);
+    }
+  });
+  return Array.from(groups.values()).map(insightPriorityGroup);
+}
+
+function insightPriorityItems(insights: TraceInsights): InsightPriorityGroup[] {
+  return insightPriorityCandidates(insights).slice(0, INSIGHTS_PRIORITY_SIGNAL_LIMIT);
+}
+
+function insightPriorityGroupKey(item: InspectionQueueItem): string {
+  if (item.title === INSIGHT_TITLE_SUSPICIOUS_TOOL_CALL) {
+    return "suspicious-tool-calls";
+  }
+  if (item.title === INSIGHT_TITLE_REPEATED_TOOL_CALL_PATTERN) {
+    return "repeated-tool-call-patterns";
+  }
+  return item.title;
+}
+
+function insightPriorityGroup(items: InspectionQueueItem[]): InsightPriorityGroup {
+  const representative = items[0];
+  return {
+    title: representative.title,
+    severity: highestSeverity(items),
+    confidence: representative.confidence,
+    directness: representative.directness,
+    summary: insightPriorityGroupSummary(representative, items),
+    explanation: insightPriorityGroupExplanation(representative, items),
+    lineNumbers: representative.lineNumbers,
+    redactionSafeSummary: insightPriorityGroupSafeSummary(representative, items),
+    representative,
+    count: items.length,
+  };
+}
+
+function highestSeverity(items: InspectionQueueItem[]): string {
+  return items.reduce((highest, item) => {
+    const highestRank = insightSeverityRank(highest);
+    const itemRank = insightSeverityRank(item.severity);
+    return itemRank < highestRank ? item.severity : highest;
+  }, items[0]?.severity ?? "info");
+}
+
+function insightSeverityRank(severity: string): number {
+  const rank = INSIGHT_SEVERITY_ORDER.indexOf(severity as (typeof INSIGHT_SEVERITY_ORDER)[number]);
+  return rank === -1 ? INSIGHT_SEVERITY_ORDER.length : rank;
+}
+
+function insightPriorityGroupSummary(representative: InspectionQueueItem, items: InspectionQueueItem[]): string {
+  if (items.length === 1) {
+    return representative.summary;
+  }
+  if (representative.title === INSIGHT_TITLE_SUSPICIOUS_TOOL_CALL) {
+    return `${formatNumber(items.length)} suspicious tool-call records grouped; first example: ${representative.summary}`;
+  }
+  if (representative.title === INSIGHT_TITLE_REPEATED_TOOL_CALL_PATTERN) {
+    return `${formatNumber(items.length)} repeated tool-call pattern records grouped; first example: ${representative.summary}`;
+  }
+  return `${formatNumber(items.length)} related ${representative.title.toLowerCase()} records grouped; first example: ${representative.summary}`;
+}
+
+function insightPriorityGroupSafeSummary(representative: InspectionQueueItem, items: InspectionQueueItem[]): string {
+  const safe = representative.redactionSafeSummary || representative.summary;
+  if (items.length === 1) {
+    return safe;
+  }
+  return `${formatNumber(items.length)} grouped records; first example: ${safe}`;
+}
+
+function insightPriorityGroupExplanation(representative: InspectionQueueItem, items: InspectionQueueItem[]): string {
+  if (items.length === 1) {
+    return representative.explanation;
+  }
+  return `${representative.explanation} ${formatNumber(items.length)} matching rows were grouped to avoid repeating the same signal in the main list.`;
+}
+
+function insightPlainReason(item: Pick<InsightPriorityGroup, "title"> | InspectionQueueItem): string {
+  if (item.title === "First logged error-like event") {
+    return "Start here because this is the earliest logged event that looked broken.";
+  }
+  if (item.title === INSIGHT_TITLE_SUSPICIOUS_TOOL_CALL) {
+    return "One or more tool records look failed, missing, long-running, empty, or error-like.";
+  }
+  if (item.title === INSIGHT_TITLE_REPEATED_TOOL_CALL_PATTERN) {
+    return "Similar tool calls repeated, which can point to retry loops or stuck local work.";
+  }
+  if (item.title === "Approval or sandbox friction") {
+    return "Permission, sandbox, or approval friction can explain blocked or retried work.";
+  }
+  if (item.title === "Context pressure marker") {
+    return "Context pressure or compaction markers can explain abrupt summaries or degraded continuity.";
+  }
+  if (item.title === "Unknown or malformed log data") {
+    return "Parser gaps can hide details from normalized views, so audit raw or Health output.";
+  }
+  if (item.title === "File impact") {
+    return "Use this as audit context for touched files, not as a root-cause claim.";
+  }
+  return "Use this as a lead into the raw log evidence, not as a root-cause verdict.";
+}
+
+function limitedInsightLines<T>(items: T[], render: (item: T) => string, limit = INSIGHTS_CARD_ITEM_LIMIT): string[] {
+  const lines = items.slice(0, limit).map(render);
+  if (items.length > limit) {
+    lines.push(`Showing ${formatNumber(limit)} of ${formatNumber(items.length)} items.`);
+  }
+  return lines;
+}
+
+function compactInsightText(text: string, limit = INSIGHTS_TEXT_PREVIEW_LIMIT): string {
+  const compact = text.replace(/::git-[^}]+}/g, "").replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return "none logged";
+  }
+  return compact.length > limit ? `${compact.slice(0, Math.max(0, limit - 3)).trimEnd()}...` : compact;
+}
+
+function repeatedToolPatternSummaryLines(patterns: TraceInsights["repeatedPatterns"]): string[] {
+  if (!patterns.length) {
+    return ["No repeated tool-call patterns detected."];
+  }
+  const grouped = new Map<string, { label: string; count: number; patterns: number; firstLine: number; lastLine: number }>();
+  patterns.forEach((pattern) => {
+    const label = repeatedToolPatternFamily(pattern.key);
+    const existing = grouped.get(label);
+    if (existing) {
+      existing.count += pattern.count;
+      existing.patterns += 1;
+      existing.firstLine = Math.min(existing.firstLine, pattern.firstLine);
+      existing.lastLine = Math.max(existing.lastLine, pattern.lastLine);
+    } else {
+      grouped.set(label, {
+        label,
+        count: pattern.count,
+        patterns: 1,
+        firstLine: pattern.firstLine,
+        lastLine: pattern.lastLine,
+      });
+    }
+  });
+  const summaries = Array.from(grouped.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  return limitedInsightLines(
+    summaries,
+    (group) =>
+      `${group.label}: ${formatNumber(group.count)} repeated calls across ${formatNumber(group.patterns)} pattern groups, lines ${group.firstLine}-${group.lastLine}`
+  );
+}
+
+function repeatedToolPatternFamily(key: string): string {
+  const body = key.startsWith("tool:") ? key.slice(5) : key;
+  return body.split(/[:.]/)[0] || "tool";
+}
+
+function suspiciousToolCallSummaryLines(calls: TraceInsights["suspiciousToolCalls"]): string[] {
+  if (!calls.length) {
+    return ["No suspicious tool calls detected."];
+  }
+  const grouped = new Map<string, { reason: string; count: number; tools: Map<string, number> }>();
+  calls.forEach((call) => {
+    const existing = grouped.get(call.reason);
+    const group = existing ?? { reason: call.reason, count: 0, tools: new Map<string, number>() };
+    group.count += 1;
+    group.tools.set(call.toolName, (group.tools.get(call.toolName) ?? 0) + 1);
+    grouped.set(call.reason, group);
+  });
+  const summaries = Array.from(grouped.values()).sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+  return limitedInsightLines(summaries, (group) => {
+    const tools = Array.from(group.tools.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 3)
+      .map(([tool, count]) => `${tool} ${formatNumber(count)}`)
+      .join(", ");
+    return `${group.reason}: ${formatNumber(group.count)} calls${tools ? ` (${tools})` : ""}`;
+  });
+}
+
+function fileCountSummary(files: TraceInsights["fileImpact"]["filesEdited"], limit = 3): string {
+  if (!files.length) {
+    return "none";
+  }
+  return files
+    .slice()
+    .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path))
+    .slice(0, limit)
+    .map((file) => `${shortPath(file.path) || file.path} (${formatNumber(file.count)})`)
+    .join(", ");
+}
+
+function renderInspectionQueue(insights: TraceInsights, items = insightPriorityItems(insights), totalPriorityItems = insightPriorityCandidates(insights).length): HTMLElement {
+  if (!items.length) {
+    return modeEmpty("No priority signals detected. Parser health, file churn, and raw inspection remain available for audit.");
+  }
+  const container = document.createElement("div");
+  const intro = modeParagraph(
+    totalPriorityItems > items.length
+      ? `Showing ${formatNumber(items.length)} of ${formatNumber(totalPriorityItems)} grouped priority signals. Lower-priority file churn is collapsed below.`
+      : "Showing grouped priority signals from logged evidence. These are leads for inspection, not root-cause conclusions."
+  );
   const list = document.createElement("div");
   list.className = "mode-linked-list";
-  insights.inspectionQueue.forEach((item, index) => {
+  items.forEach((item, index) => {
     const row = document.createElement("article");
     row.className = `mode-linked-row severity-${item.severity}`;
     const body = document.createElement("div");
     const title = document.createElement("strong");
-    title.textContent = `${index + 1}. ${item.title}`;
+    title.textContent = `${index + 1}. ${item.count > 1 ? `${item.title} (${formatNumber(item.count)})` : item.title}`;
     const detail = document.createElement("small");
-    detail.textContent = `${item.summary} - ${item.confidence} - ${item.directness}`;
+    detail.textContent = `Evidence: ${item.summary} - ${item.confidence} - ${item.directness}`;
     const why = document.createElement("p");
-    why.textContent = item.explanation;
-    body.append(title, detail, why);
+    why.textContent = `Why it matters: ${insightPlainReason(item)}`;
+    const detected = document.createElement("p");
+    detected.textContent = `How detected: ${item.explanation}`;
+    body.append(title, why, detail, detected);
     const actions = document.createElement("div");
     actions.className = "mode-row-actions";
     const firstLine = item.lineNumbers[0];
     actions.append(
-      modeButton("Open Raw", () => focusEventByLine(firstLine, item.title, item)),
+      modeButton("Open Raw", () => focusEventByLine(firstLine, item.title, item.representative)),
       modeButton("Copy Ref", () => copyText(`line ${firstLine ?? "n/a"} - ${item.redactionSafeSummary}`, "Line reference copied"))
     );
     row.append(body, actions);
     list.append(row);
   });
-  return list;
+  container.append(intro, list);
+  return container;
+}
+
+function renderFileChurnDetails(insights: TraceInsights, patterns = insightFileChurnPatterns(insights)): HTMLElement | null {
+  const repeatedFiles = insights.fileImpact.repeatedFiles;
+  if (!patterns.length && !repeatedFiles.length) {
+    return null;
+  }
+  const details = document.createElement("details");
+  details.className = "mode-details file-churn-details";
+  const summary = document.createElement("summary");
+  summary.textContent = patterns.length
+    ? `File Churn (${formatNumber(patterns.length)} repeated file patterns)`
+    : `File Churn (${formatNumber(repeatedFiles.length)} repeated files)`;
+  details.append(summary);
+  details.append(modeParagraph("Repeated file activity is audit context. Expand it when you need to inspect which paths dominated the run."));
+  const lines = patterns.length
+    ? limitedInsightLines(
+        patterns,
+        (pattern) => `${pattern.key} - ${formatNumber(pattern.count)} mentions, lines ${pattern.firstLine}-${pattern.lastLine}`,
+        INSIGHTS_FILE_CHURN_LIMIT
+      )
+    : limitedInsightLines(
+        repeatedFiles,
+        (file) => `${file.path} - ${formatNumber(file.count)} mentions, lines ${file.firstLine}-${file.lastLine}`,
+        INSIGHTS_FILE_CHURN_LIMIT
+      );
+  if (lines.length) {
+    const list = document.createElement("ul");
+    lines.forEach((line) => {
+      const item = document.createElement("li");
+      item.textContent = line;
+      list.append(item);
+    });
+    details.append(list);
+  }
+  return details;
 }
 
 function renderDivergenceList(diff: TraceDiff): HTMLElement {
@@ -7337,16 +7849,27 @@ function parserHealthSummaryText(current: SessionGraph): string {
 }
 
 function insightSummaryText(insights: TraceInsights): string {
-  const lines = ["Perlustron insights", "What should I inspect first?"];
-  if (!insights.inspectionQueue.length) {
-    lines.push("- No high-priority findings detected.");
+  const priorityItems = insightPriorityItems(insights);
+  const priorityCount = insightPriorityCandidates(insights).length;
+  const fileChurnCount = insightFileChurnPatterns(insights).length;
+  const lines = [
+    "Perlustron insights",
+    "Insights are heuristic signals from logged events only; they are leads, not root cause.",
+    "Priority signal groups",
+  ];
+  if (!priorityItems.length) {
+    lines.push("- No priority signals detected.");
   } else {
-    insights.inspectionQueue.forEach((item, index) => {
-      lines.push(`${index + 1}. [${item.severity}] ${item.title}: ${item.redactionSafeSummary || item.summary}`);
+    priorityItems.forEach((item, index) => {
+      const countLabel = item.count > 1 ? ` (${formatNumber(item.count)} grouped)` : "";
+      lines.push(`${index + 1}. [${item.severity}] ${item.title}${countLabel}: ${item.redactionSafeSummary || item.summary}`);
     });
+    if (priorityCount > priorityItems.length) {
+      lines.push(`Showing ${formatNumber(priorityItems.length)} of ${formatNumber(priorityCount)} priority signal groups.`);
+    }
   }
-  lines.push(`Repeated patterns: ${insights.repeatedPatterns.length}`);
-  lines.push(`Suspicious tool calls: ${insights.suspiciousToolCalls.length}`);
+  lines.push(`File-churn patterns: ${fileChurnCount}`);
+  lines.push(`Suspicious calls: ${insights.suspiciousToolCalls.length}`);
   lines.push(`Approval/sandbox friction: ${insights.approvalFriction.length}`);
   return lines.join("\n");
 }
@@ -7568,25 +8091,35 @@ function insightsModeText(): string {
   if (!graph || !insights) {
     return "Waiting for session insights.";
   }
+  const priorityItems = insightPriorityItems(insights);
+  const priorityCount = insightPriorityCandidates(insights).length;
+  const fileChurnCount = insightFileChurnPatterns(insights).length;
   const lines = [
-    "Insights are heuristics over logged events only. Hidden or unlogged reasoning cannot be recovered.",
+    "Insights are heuristic signals from logged events only. Hidden or unlogged reasoning cannot be recovered.",
+    "Repeated event rows are grouped before backing detail is summarized.",
   ];
+  lines.push(`Priority signal groups: ${formatNumber(priorityCount)}`);
+  priorityItems.forEach((item, index) => {
+    const countLabel = item.count > 1 ? ` (${formatNumber(item.count)} grouped)` : "";
+    lines.push(`  ${index + 1}. [${item.severity}] ${item.title}${countLabel}: ${item.redactionSafeSummary || item.summary}`);
+  });
+  if (priorityCount > priorityItems.length) {
+    lines.push(`  Showing ${formatNumber(priorityItems.length)} of ${formatNumber(priorityCount)} priority signal groups.`);
+  }
   if (insights.failureChain) {
     lines.push(
       `First logged error-like event: line ${insights.failureChain.firstLoggedError.lineNumber} - ${insights.failureChain.firstLoggedError.title}`
     );
-    lines.push(`Final logged outcome: ${insights.failureChain.finalOutcome}`);
+    lines.push(`Final logged outcome: ${compactInsightText(insights.failureChain.finalOutcome)}`);
   } else {
     lines.push("First logged error-like event: none detected");
   }
-  lines.push(`Repeated patterns: ${insights.repeatedPatterns.length}`);
-  insights.repeatedPatterns.forEach((pattern) => {
-    lines.push(`  ${pattern.patternType} x${pattern.count} lines ${pattern.firstLine}-${pattern.lastLine}: ${pattern.key}`);
-  });
-  lines.push(`Suspicious tool calls: ${insights.suspiciousToolCalls.length}`);
-  insights.suspiciousToolCalls.forEach((call) => {
-    lines.push(`  line ${call.call.lineNumber} ${call.toolName}: ${call.reason}`);
-  });
+  const repeatedToolPatterns = insights.repeatedPatterns.filter((pattern) => pattern.patternType !== "file_activity");
+  lines.push(`Repeated tool patterns: ${formatNumber(repeatedToolPatterns.length)}`);
+  repeatedToolPatternSummaryLines(repeatedToolPatterns).forEach((line) => lines.push(`  ${line}`));
+  lines.push(`File-churn patterns: ${formatNumber(fileChurnCount)}`);
+  lines.push(`Suspicious calls: ${formatNumber(insights.suspiciousToolCalls.length)}`);
+  suspiciousToolCallSummaryLines(insights.suspiciousToolCalls).forEach((line) => lines.push(`  ${line}`));
   lines.push(`Context pressure: ${insights.contextPressure.status}`);
   lines.push(
     `File impact: ${insights.fileImpact.filesEdited.length} edited, ${insights.fileImpact.filesRead.length} read, ${insights.fileImpact.filesReferenced.length} referenced`
