@@ -77,7 +77,7 @@ try {
         eventIndex: 6,
         kind: "function_call",
         summary: hostileText,
-        parserVersion: "0.2.0-fixture",
+        parserVersion: "0.1.0-fixture",
         schemaVersion: "perlustron.trace.v1",
       });
       const shareSummary = copySafeShareSummaryText({
@@ -87,7 +87,7 @@ try {
         callCount: 2,
         fileChangeCount: 1,
         latestEventIndex: 6,
-        parserVersion: "0.2.0-fixture",
+        parserVersion: "0.1.0-fixture",
         schemaVersion: "perlustron.trace.v1",
         cliContext: "codex-test 0.0.0-fixture",
         rawLogsSafeToShare: false,
@@ -109,7 +109,7 @@ try {
       expect(reference.includes("line: 7"), "Reference should include line number.");
       expect(reference.includes("event_index: 6"), "Reference should include event index.");
       expect(reference.includes("kind: function_call"), "Reference should include event kind.");
-      expect(reference.includes("perlustron: parser 0.2.0-fixture / schema perlustron.trace.v1"), "Reference should include Perlustron parser/schema context.");
+      expect(reference.includes("perlustron: parser 0.1.0-fixture / schema perlustron.trace.v1"), "Reference should include Perlustron parser/schema context.");
       expect(/token=\\[REDACTED\\]/.test(combined), "Token query parameters should be visibly redacted, not copied raw.");
       expect(structuralSummary.includes("shell_command"), "Structural summary should keep useful tool identity.");
       expect(shareSummary.includes("raw_logs: requires human review before sharing"), "Share summary should say raw logs need review.");
