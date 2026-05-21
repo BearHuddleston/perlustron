@@ -42,13 +42,22 @@ Without GitHub CLI, open the repository's Releases page in a browser, download t
 
 GitHub CLI is still convenient when available:
 
-macOS:
+macOS Apple Silicon:
 
 ```bash
 gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-macos-aarch64.tar.gz*'
 shasum -a 256 -c perlustron-macos-aarch64.tar.gz.sha256
 tar -xzf perlustron-macos-aarch64.tar.gz
 ./perlustron-macos-aarch64/perlustron --demo
+```
+
+macOS Intel:
+
+```bash
+gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-macos-x86_64.tar.gz*'
+shasum -a 256 -c perlustron-macos-x86_64.tar.gz.sha256
+tar -xzf perlustron-macos-x86_64.tar.gz
+./perlustron-macos-x86_64/perlustron --demo
 ```
 
 Linux:
@@ -82,7 +91,7 @@ perlustron --demo
 
 Release archives include the binary, local UI assets embedded in the binary, bundled sanitized demo fixtures, licenses, `SECURITY.md`, and docs. Normal release use does not require Rust, Node, npm, CDN access, or network access.
 
-macOS artifacts are signed and submitted for notarization when release secrets are configured. Unsigned developer-preview archives may require:
+The v0.1.0 macOS artifacts are unsigned developer-preview archives. Future releases can be signed and submitted for notarization when Apple Developer signing secrets are configured. Unsigned archives may require:
 
 ```bash
 xattr -dr com.apple.quarantine perlustron

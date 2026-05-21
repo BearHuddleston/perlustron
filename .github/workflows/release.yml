@@ -221,12 +221,7 @@ jobs:
             dist/*
           body: |
             ## Summary
-            Local-first Perlustron release for Codex and Claude Code session forensics.
-
-            ## Release Checklist
-            - Review the prepared release notes for this tag before publishing the draft.
-            - Confirm interactive UI, CLI smoke, redacted exports, and archive validation passed.
-            - Confirm signing/notarization status for macOS artifacts.
+            Perlustron ${{ github.ref_name }} is a local-first agent-forensics workbench for Codex and Claude Code JSONL session logs. It provides a loopback-only browser UI, parser health, timeline/transcript/map views, debugging insights, session diff, and redacted reports.
 
             ## Install
             1. Download the archive for your platform.
@@ -241,10 +236,10 @@ jobs:
             - `perlustron-macos-aarch64.tar.gz`
 
             ## Security And Privacy
-            Perlustron is local-first, binds to `127.0.0.1` by default, uses a per-run local API token, and does not implement telemetry.
+            Perlustron binds to `127.0.0.1` by default, bundles browser assets locally, and does not implement telemetry. API routes are tokenless by default on loopback; launch with `--require-api-token` to require a random per-run local API token. Redacted exports and scans are best-effort sharing aids and should be reviewed before forwarding.
 
             ## macOS Signing
-            macOS binaries are signed and submitted for notarization when the release secrets are configured. If the secrets are absent, the macOS archive is an unsigned developer-preview artifact and users may need to remove quarantine manually.
+            macOS archives are signed and submitted for notarization only when Apple Developer signing secrets are configured for the release run. If those secrets are absent, the macOS archives are unsigned developer-preview CLI artifacts and users may need to open the binary from Terminal or remove quarantine manually.
 
             ## Test Plan
             - Built frontend assets.

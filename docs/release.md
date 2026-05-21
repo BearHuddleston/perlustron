@@ -24,6 +24,7 @@ The Rust binary embeds the static UI and demo fixtures. Keep `static/app.js`, `s
 ```bash
 gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-linux-x86_64.tar.gz*'
 gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-macos-aarch64.tar.gz*'
+gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-macos-x86_64.tar.gz*'
 gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-windows-x86_64.zip*'
 ```
 
@@ -153,7 +154,7 @@ The release workflow signs and submits macOS binaries for notarization when thes
 
 The certificate should be a Developer ID Application certificate exported as a password-protected `.p12` and base64-encoded for the secret.
 
-Normal CI and unsigned release builds do not require these secrets. If they are absent, macOS archives are unsigned developer-preview artifacts. Technical users may need to open the binary from Terminal or remove quarantine:
+The published v0.1.0 macOS archives are unsigned developer-preview artifacts because these secrets were not configured for the release run. Normal CI and unsigned release builds do not require these secrets. If signing secrets are absent in a future release run, macOS archives remain unsigned developer-preview artifacts. Technical users may need to open the binary from Terminal or remove quarantine:
 
 ```bash
 xattr -dr com.apple.quarantine perlustron
