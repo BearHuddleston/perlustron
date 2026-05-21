@@ -10,6 +10,31 @@ const styles = readFileSync("static/styles.css", "utf8");
 
 const { expect, finish } = createCheck("Summary mode shell");
 
+function cssMediaBlockFor(source, query) {
+  const marker = `@media (${query})`;
+  const start = source.indexOf(marker);
+  if (start < 0) {
+    return "";
+  }
+  const openBrace = source.indexOf("{", start);
+  if (openBrace < 0) {
+    return "";
+  }
+  let depth = 0;
+  for (let index = openBrace; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(openBrace + 1, index);
+      }
+    }
+  }
+  return "";
+}
+
 const modeNavIndex = html.indexOf('id="mode-nav"');
 const summaryButtonIndex = html.indexOf('data-app-mode="summary"');
 const mapButtonIndex = html.indexOf('data-app-mode="map"');
@@ -148,11 +173,18 @@ const modeRow = cssBlockFor(styles, ".mode-row");
 const modeActionButton = cssBlockFor(styles, ".mode-action-button");
 const modePanelPre = cssBlockFor(styles, ".mode-panel-content > pre");
 const statusBar = cssBlockFor(styles, "#status-bar");
+const statusBarItems = cssBlockFor(styles, ".status-bar-items");
+const statusBarScrollbar = cssBlockFor(styles, ".status-bar-items::-webkit-scrollbar");
+const statusBarValue = cssBlockFor(styles, ".status-bar-items .root-copy small");
 const stageMetric = cssBlockFor(styles, ".stage-metric");
 const stage = cssBlockFor(styles, "#stage");
 const mapCanvas = cssBlockFor(styles, "#space");
 const mapLiveHud = cssBlockFor(styles, ".map-live-hud");
 const mapMetrics = cssBlockFor(styles, ".map-metrics");
+const lowWidthStyles = cssMediaBlockFor(styles, "max-width: 1100px");
+const lowWidthModeStatus = cssBlockFor(lowWidthStyles, ".mode-nav button[data-status]::before");
+const lowWidthModeScrollbar = cssBlockFor(lowWidthStyles, ".mode-nav::-webkit-scrollbar");
+const lowWidthStatusItems = cssBlockFor(lowWidthStyles, ".status-bar-items");
 expect(/border:\s*0/.test(topActionButton) && /background:\s*transparent/.test(topActionButton) && /box-shadow:\s*none/.test(topActionButton), "Top action controls should use a flat inline style instead of boxed cards.");
 expect(app.includes("function syncAppModeControls") && app.includes('activeAppMode === "settings"'), "Settings cog should carry the active state for settings mode.");
 expect(app.includes("const MAP_CAMERA_FAR = 12_000") && app.includes("new THREE.PerspectiveCamera(50, 1, 0.1, MAP_CAMERA_FAR)"), "Map camera should use the extended named far clipping plane.");
@@ -180,6 +212,22 @@ expect(app.includes('button.classList.toggle("active", twoDActive)'), "2D view c
 expect(/background:\s*[\s\S]*linear-gradient/.test(modeNav) && /scrollbar-width:\s*thin/.test(modeNav), "Mode nav chrome polish should be folded into the base nav selector.");
 expect(/border:\s*0/.test(modeNavButton) && !/border-radius/.test(modeNavButton), "Mode nav buttons should not use rounded card styling.");
 expect(/background:\s*transparent/.test(modeNavButtonActive) && /box-shadow:\s*none/.test(modeNavButtonActive), "Mode nav active state should rely on underline color instead of a rounded card.");
+expect(
+  /content:\s*""/.test(lowWidthModeStatus) && /width:\s*6px/.test(lowWidthModeStatus),
+  "Low-width mode nav should collapse maturity labels into compact markers."
+);
+expect(
+  /display:\s*none/.test(lowWidthModeScrollbar) && /display:\s*none/.test(statusBarScrollbar),
+  "Responsive chrome rails should stay scrollable without exposing native scrollbars."
+);
+expect(
+  /scrollbar-width:\s*none/.test(statusBarItems) && /max-width:\s*180px/.test(statusBarValue),
+  "Status metadata should use compact base sizing before the footer overflows."
+);
+expect(
+  /mask-image:\s*linear-gradient/.test(lowWidthStatusItems),
+  "Low-width status metadata should fade overflowing content."
+);
 expect(/padding:\s*12px 28px/.test(modeFilters) && /background:\s*transparent/.test(modeFilters) && /scrollbar-width:\s*thin/.test(modeFilters), "Mode filter chrome should be flat and folded into the base filter selector.");
 expect(/border:\s*0/.test(modeCard) && /background:\s*transparent/.test(modeCard), "Mode page sections should not use boxed card surfaces.");
 expect(/border:\s*0/.test(summaryFact) && /background:\s*transparent/.test(summaryFact), "Summary fact sections should not use boxed card surfaces.");

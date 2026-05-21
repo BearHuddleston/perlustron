@@ -15,6 +15,9 @@ const repoRoot = path.resolve(__dirname, "..");
 const START_TIMEOUT_MS = Number(process.env.PERLUSTRON_SMOKE_START_TIMEOUT_MS || 120_000);
 const UI_TIMEOUT_MS = Number(process.env.PERLUSTRON_SMOKE_UI_TIMEOUT_MS || 30_000);
 const REDACTED_TOKEN = "<redacted-token>";
+const RESPONSIVE_STATUS_WIDTHS = [1391, 1295];
+const RESPONSIVE_STATUS_HEIGHT = 979;
+const LOW_CHROME_VIEWPORT = { width: 887, height: 979 };
 
 const chromeCandidates = [
   process.env.CHROME_BIN,
@@ -547,6 +550,96 @@ async function openEventPopup(page) {
   return false;
 }
 
+async function withViewports(page, viewports, callback) {
+  const originalViewport = page.viewportSize() || { width: 1440, height: 960 };
+  try {
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      await page.waitForFunction(
+        ([width, height]) => window.innerWidth === width && window.innerHeight === height,
+        [viewport.width, viewport.height],
+        { timeout: UI_TIMEOUT_MS }
+      );
+      await callback(viewport);
+    }
+  } finally {
+    await page.setViewportSize(originalViewport);
+    await page.waitForFunction(
+      ([width, height]) => window.innerWidth === width && window.innerHeight === height,
+      [originalViewport.width, originalViewport.height],
+      { timeout: UI_TIMEOUT_MS }
+    );
+  }
+}
+
+async function withViewport(page, viewport, callback) {
+  let result;
+  await withViewports(page, [viewport], async () => {
+    result = await callback();
+  });
+  return result;
+}
+
+async function assertMediumResolutionStatusBar(page) {
+  const viewports = RESPONSIVE_STATUS_WIDTHS.map((width) => ({ width, height: RESPONSIVE_STATUS_HEIGHT }));
+  await withViewports(page, viewports, async ({ width }) => {
+    const mediumStatus = await page.evaluate(() => {
+      const statusItems = document.querySelector("#metadata-list");
+      const rows = Array.from(document.querySelectorAll("#metadata-list .root-row"));
+      const rowWidths = rows.map((row) => row.getBoundingClientRect().width);
+      return {
+        clientWidth: statusItems?.clientWidth || 0,
+        rowCount: rows.length,
+        rowMaxWidth: rowWidths.length ? Math.max(...rowWidths) : 0,
+        scrollWidth: statusItems?.scrollWidth || 0,
+        scrollbarWidth: statusItems ? getComputedStyle(statusItems).scrollbarWidth : "",
+      };
+    });
+
+    assert(mediumStatus.rowCount > 0, `${width}px status bar should render metadata rows`);
+    assert(mediumStatus.scrollbarWidth === "none", `${width}px status bar should hide the native scrollbar`);
+    assert(
+      mediumStatus.scrollWidth <= mediumStatus.clientWidth + 1,
+      `${width}px status bar should fit metadata without horizontal overflow`
+    );
+    assert(mediumStatus.rowMaxWidth <= 280, `${width}px status rows should cap long values`);
+  });
+}
+
+async function assertLowResolutionChrome(page) {
+  const lowChrome = await withViewport(page, LOW_CHROME_VIEWPORT, () =>
+    page.evaluate(() => {
+      const modeNav = document.querySelector("#mode-nav");
+      const statusItems = document.querySelector("#metadata-list");
+      const buttons = Array.from(document.querySelectorAll("#mode-nav button"));
+      const experimentalButton = document.querySelector('#mode-nav [data-maturity="experimental"]');
+      const modeNavStyle = modeNav ? getComputedStyle(modeNav) : null;
+      const statusStyle = statusItems ? getComputedStyle(statusItems) : null;
+      const navBox = modeNav?.getBoundingClientRect();
+      const buttonBoxes = buttons.map((button) => button.getBoundingClientRect());
+      const badgeStyle = experimentalButton ? getComputedStyle(experimentalButton, "::before") : null;
+      return {
+        badgeWidth: badgeStyle ? Number.parseFloat(badgeStyle.width) : 0,
+        buttonMaxHeight: buttonBoxes.length ? Math.max(...buttonBoxes.map((box) => box.height)) : 0,
+        navHeight: navBox?.height || 0,
+        navOverflowY: modeNavStyle?.overflowY || "",
+        navScrollbarWidth: modeNavStyle?.scrollbarWidth || "",
+        statusMaskImage: statusStyle?.maskImage || statusStyle?.webkitMaskImage || "",
+        statusOverflowX: statusStyle?.overflowX || "",
+        statusScrollbarWidth: statusStyle?.scrollbarWidth || "",
+      };
+    })
+  );
+
+  assert(lowChrome.navScrollbarWidth === "none", "low-resolution mode nav should hide the native scrollbar");
+  assert(lowChrome.navOverflowY === "hidden", "low-resolution mode nav should prevent vertical badge overflow");
+  assert(lowChrome.badgeWidth > 0 && lowChrome.badgeWidth <= 8, "low-resolution mode nav should collapse maturity labels to markers");
+  assert(lowChrome.navHeight > 0 && lowChrome.buttonMaxHeight <= lowChrome.navHeight, "low-resolution mode buttons should stay within the nav rail");
+  assert(lowChrome.statusScrollbarWidth === "none", "low-resolution status bar should hide the native scrollbar");
+  assert(lowChrome.statusOverflowX === "auto", "low-resolution status bar should remain horizontally scrollable");
+  assert(lowChrome.statusMaskImage && lowChrome.statusMaskImage !== "none", "low-resolution status bar should fade overflowing metadata");
+}
+
 async function testBrowserUi(server, browser) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
@@ -626,6 +719,8 @@ async function testBrowserUi(server, browser) {
     );
     assert(chrome.panelStatus === "Beta", "Summary panel should show a beta maturity label");
     assert(!chrome.modeButtons.includes("Settings"), "Settings should not render as a redundant mode tab");
+    await assertMediumResolutionStatusBar(page);
+    await assertLowResolutionChrome(page);
     await assertSummaryDeepLink(page, server);
     await assertSummaryOpenEvidenceRoutesToRaw(page, server);
     await assertInsightsPrioritizeSignals(page, server);
