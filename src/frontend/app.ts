@@ -1073,6 +1073,9 @@ const sceneFrame = queryRequired<HTMLElement>("#scene-frame");
 const STATUS_FALLBACK_POLL_INTERVAL_MS = 3500;
 const LIVE_UPDATE_RETRY_MS = 1000;
 const GRAPH_REFRESH_COALESCE_MS = 180;
+const LIVE_CAMERA_FOLLOW_DURATION_MS = 1200;
+const LIVE_CAMERA_FOLLOW_SAFE_NDC = 0.72;
+const LIVE_CAMERA_FOLLOW_EPSILON_SQ = 0.0001;
 const MAP_CAMERA_FAR = 12_000;
 const MAP_GRID_DIVISIONS = 1_200;
 const MAP_GRID_SIZE = 12_000;
@@ -1227,6 +1230,10 @@ const cameraFlyForward = new THREE.Vector3();
 const cameraFlyRight = new THREE.Vector3();
 const cameraFlyMove = new THREE.Vector3();
 const cameraFlyLookEuler = new THREE.Euler(0, 0, 0, "YXZ");
+const liveCameraFollowStartPosition = new THREE.Vector3();
+const liveCameraFollowStartTarget = new THREE.Vector3();
+const liveCameraFollowEndPosition = new THREE.Vector3();
+const liveCameraFollowEndTarget = new THREE.Vector3();
 const whiteColor = new THREE.Color(0xffffff);
 
 let graph: SessionGraph | null = null;
@@ -1288,6 +1295,8 @@ let viewportRefreshNeedsOverview = false;
 let pointColorsDirty = true;
 let eventContextRenderedSelection: { nodeId: string; signature: string } | null = null;
 let userPinnedCamera = false;
+let liveCameraFollowActive = false;
+let liveCameraFollowStartedAt = 0;
 const activeCameraFlyKeys = new Set<string>();
 let cameraFlyLookActive = false;
 let cameraFlyLookPointerId: number | null = null;
@@ -1727,6 +1736,7 @@ function resetSessionViewState(): void {
   compactionInProgress = false;
   compactionProgressStartedAt = 0;
   newEventFloor = Number.POSITIVE_INFINITY;
+  cancelLiveCameraFollow();
   if (liveGraphAnimationTimer) {
     clearTimeout(liveGraphAnimationTimer);
   }
@@ -1890,7 +1900,10 @@ function followLatestGraphUpdate(previousFocus: THREE.Vector3 | null = null): vo
   mode = "overview";
   setLayoutTargets({ preserveCamera: true });
   if (previousFocus) {
-    panWithFollowFocus(previousFocus, focusPointForNode(latest));
+    const nextFocus = focusPointForNode(latest);
+    if (!isFocusPointComfortablyVisible(nextFocus)) {
+      startLiveCameraFollowPan(previousFocus, nextFocus);
+    }
   } else {
     frameOverview({ preserveDistance: true });
   }
@@ -1906,23 +1919,80 @@ function shouldAutoFollowLiveGraph(): boolean {
 
 function markManualCameraNavigation(): void {
   userPinnedCamera = true;
+  cancelLiveCameraFollow();
 }
 
 function resumeCameraAutoFollow(): void {
   userPinnedCamera = false;
 }
 
-function panWithFollowFocus(previousFocus: THREE.Vector3, nextFocus: THREE.Vector3): void {
+function isFocusPointComfortablyVisible(focus: THREE.Vector3): boolean {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
+
+  camera.updateMatrixWorld();
+  scratchVector.copy(focus).project(camera);
+  return (
+    scratchVector.z >= -1 &&
+    scratchVector.z <= 1 &&
+    Math.abs(scratchVector.x) <= LIVE_CAMERA_FOLLOW_SAFE_NDC &&
+    Math.abs(scratchVector.y) <= LIVE_CAMERA_FOLLOW_SAFE_NDC
+  );
+}
+
+function startLiveCameraFollowPan(previousFocus: THREE.Vector3, nextFocus: THREE.Vector3): void {
   const deltaX = nextFocus.x - previousFocus.x;
   const deltaY = nextFocus.y - previousFocus.y;
   const deltaZ = nextFocus.z - previousFocus.z;
-  controls.target.x += deltaX;
-  controls.target.y += deltaY;
-  controls.target.z += deltaZ;
-  camera.position.x += deltaX;
-  camera.position.y += deltaY;
-  camera.position.z += deltaZ;
-  controls.update();
+  if (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ < LIVE_CAMERA_FOLLOW_EPSILON_SQ) {
+    return;
+  }
+
+  liveCameraFollowStartPosition.copy(camera.position);
+  liveCameraFollowStartTarget.copy(controls.target);
+  if (liveCameraFollowActive) {
+    liveCameraFollowEndPosition.x += deltaX;
+    liveCameraFollowEndPosition.y += deltaY;
+    liveCameraFollowEndPosition.z += deltaZ;
+    liveCameraFollowEndTarget.x += deltaX;
+    liveCameraFollowEndTarget.y += deltaY;
+    liveCameraFollowEndTarget.z += deltaZ;
+  } else {
+    liveCameraFollowEndPosition.set(camera.position.x + deltaX, camera.position.y + deltaY, camera.position.z + deltaZ);
+    liveCameraFollowEndTarget.set(controls.target.x + deltaX, controls.target.y + deltaY, controls.target.z + deltaZ);
+  }
+  liveCameraFollowStartedAt = performance.now();
+  liveCameraFollowActive = true;
+}
+
+function updateLiveCameraFollow(now: number): void {
+  if (!liveCameraFollowActive) {
+    return;
+  }
+  if (!shouldAutoFollowLiveGraph()) {
+    cancelLiveCameraFollow();
+    return;
+  }
+
+  const progress = THREE.MathUtils.clamp((now - liveCameraFollowStartedAt) / LIVE_CAMERA_FOLLOW_DURATION_MS, 0, 1);
+  const eased = liveCameraFollowEase(progress);
+  camera.position.lerpVectors(liveCameraFollowStartPosition, liveCameraFollowEndPosition, eased);
+  controls.target.lerpVectors(liveCameraFollowStartTarget, liveCameraFollowEndTarget, eased);
+  if (progress >= 1) {
+    camera.position.copy(liveCameraFollowEndPosition);
+    controls.target.copy(liveCameraFollowEndTarget);
+    liveCameraFollowActive = false;
+  }
+}
+
+function liveCameraFollowEase(progress: number): number {
+  return progress * progress * progress * (progress * (progress * 6 - 15) + 10);
+}
+
+function cancelLiveCameraFollow(): void {
+  liveCameraFollowActive = false;
 }
 
 function scheduleGraphRefresh(previousLineCount: number, previousLatest: number): void {
@@ -4431,6 +4501,7 @@ function render() {
   updateCompactionPulseEffects(now, elapsedTime);
   updateSteeringPulseEffects(now, elapsedTime);
   updateCameraFlight(delta);
+  updateLiveCameraFollow(now);
   controls.update();
   updateInfiniteGrid();
   renderer?.render(scene, camera);
@@ -8223,6 +8294,7 @@ function setupControls() {
     if (isTailing) {
       startLiveUpdates();
     } else {
+      cancelLiveCameraFollow();
       stopLiveUpdates();
     }
   });
