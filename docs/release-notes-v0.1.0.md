@@ -5,7 +5,7 @@ Perlustron v0.1.0 is the active public release line for local-first Codex and Cl
 ## Summary
 
 - Inspect Codex and Claude JSONL session logs locally.
-- Serve a loopback-only browser UI with a per-run local API token.
+- Serve a loopback-only browser UI; API routes are tokenless by default on loopback, with optional per-run local API token auth via `--require-api-token`.
 - Provide CLI views for status, session diffs, insights, unknown event reporting, redacted exports, and fixture reporting.
 - Package release archives for Linux, Windows, macOS x86_64, and macOS arm64, each with a matching checksum file.
 
@@ -26,4 +26,4 @@ perlustron --demo
 
 ## macOS Signing
 
-macOS binaries are signed and submitted for notarization when release secrets are configured. If signing secrets are absent, macOS archives are unsigned developer-preview artifacts.
+The v0.1.0 macOS archives are unsigned developer-preview artifacts because signing/notarization secrets were not configured for this release run. Future releases can be signed and submitted for notarization when the required Apple Developer secrets are configured.
