@@ -28,7 +28,7 @@ interface AppModeMaturityInfo {
   maturity: AppModeMaturity;
   title: string;
 }
-type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction";
+type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction" | "skill";
 type MetadataIcon = "codex" | "source" | "git" | "policy" | "model" | "tools";
 type ViewAction = "zoom-in" | "zoom-out" | "two-d" | "overview";
 type SceneBucket = "prompt" | "call" | "fileChange" | "message" | "compaction";
@@ -45,7 +45,7 @@ type TimerId = ReturnType<typeof setTimeout>;
 
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
-const METRICS = ["error", "long", "file", "diff", "artifact", "compaction"] as const satisfies readonly Metric[];
+const METRICS = ["error", "long", "file", "diff", "artifact", "compaction", "skill"] as const satisfies readonly Metric[];
 const LONG_CALL_DURATION_MS = 30_000;
 const RAW_TEXT_LINE_HEIGHT = 18;
 const RAW_TEXT_FULL_RENDER_LINE_LIMIT = 3_000;
@@ -731,6 +731,7 @@ interface SceneNodeBase<TSource> {
   home?: THREE.Vector3;
   baseScale: number;
   scale: number;
+  skillNames?: string[];
   bucket?: SceneBucket;
   instanceIndex?: number;
   matrixDirty?: boolean;
@@ -749,7 +750,7 @@ type FileChangeSceneNode = SceneNodeBase<FileChangeNode> & {
 };
 type MessageSceneNode = SceneNodeBase<MessageNode> & {
   type: "message";
-  kind: "assistant";
+  kind: "assistant" | "skill";
 };
 type CompactionSceneNode = SceneNodeBase<CompactionNode> & {
   type: "compaction";
@@ -1007,6 +1008,93 @@ function isNestedSubagentEventName(name: string): boolean {
   return name.startsWith("subagent.") && name !== "subagent";
 }
 
+function skillNamesForNode(node: SceneNode): string[] {
+  if (node.skillNames) {
+    return node.skillNames;
+  }
+  if (node.type === "call") {
+    return skillNamesForCall(node.source);
+  }
+  if (node.type === "message") {
+    return skillNamesFromText(node.source.text);
+  }
+  return [];
+}
+
+function nodeIsSkillUse(node: SceneNode): boolean {
+  return node.kind === "skill" || skillNamesForNode(node).length > 0;
+}
+
+function skillNamesForCall(call: CallNode): string[] {
+  return skillNamesFromText(`${call.name}\n${call.argumentPreview}`);
+}
+
+function skillUseTitle(names: readonly string[]): string {
+  if (!names.length) {
+    return "skill use";
+  }
+  const visible = names.slice(0, 3).join(", ");
+  const overflow = names.length > 3 ? ` +${names.length - 3}` : "";
+  return `${names.length === 1 ? "skill" : "skills"}: ${visible}${overflow}`;
+}
+
+function skillNamesFromText(text: string): string[] {
+  const names = new Set<string>();
+  const source = boundedSkillScanText(text).replaceAll("\\\\", "\\");
+  collectSkillPathNames(source, names);
+  collectSkillPatternNames(source, names, /\b(?:using|use|uses|used|loading|load|loads|loaded|invoking|invoke|invokes|invoked|running|run|runs|ran|applying|apply|applies|applied)\s+(?:the\s+)?(?:[$`])?([a-z][a-z0-9:_-]{1,80})(?:[`])?\s+skill\b/gi);
+  collectSkillPatternNames(source, names, /\bskills?\s*[:=]\s*(?:[$`])?([a-z][a-z0-9:_-]{1,80})(?:[`])?/gi);
+  collectAnnouncedSkillNames(source, names);
+  return [...names].sort((left, right) => left.localeCompare(right));
+}
+
+function boundedSkillScanText(text: string): string {
+  if (text.length <= 8_000) {
+    return text;
+  }
+  return `${text.slice(0, 4_000)}\n${text.slice(-4_000)}`;
+}
+
+function collectSkillPathNames(text: string, names: Set<string>): void {
+  const pattern = /(?:^|[\\/])([^\\/\s"'<>()[\]{}]+)[\\/]SKILL\.md\b/gi;
+  for (const match of text.matchAll(pattern)) {
+    addSkillName(names, match[1], { requireExplicitMarker: false });
+  }
+}
+
+function collectSkillPatternNames(text: string, names: Set<string>, pattern: RegExp): void {
+  for (const match of text.matchAll(pattern)) {
+    addSkillName(names, match[1], { requireExplicitMarker: false });
+  }
+}
+
+function collectAnnouncedSkillNames(text: string, names: Set<string>): void {
+  const pattern =
+    /\b(?:using|loading|invoking|running|applying)\s+(?:the\s+)?([$`]?)([a-z][a-z0-9:_-]{1,80})([`]?)(?=\s+(?:for|because|to|workflow|and|,|$))/gi;
+  for (const match of text.matchAll(pattern)) {
+    const marked = Boolean(match[1] || match[3]);
+    addSkillName(names, match[2], { requireExplicitMarker: !marked });
+  }
+}
+
+function addSkillName(names: Set<string>, rawName: string, { requireExplicitMarker }: { requireExplicitMarker: boolean }): void {
+  const name = rawName
+    .trim()
+    .replace(/^[$`]+/, "")
+    .replace(/[`.,:;)\]]+$/, "")
+    .toLowerCase();
+  if (!/^[a-z][a-z0-9:_-]{1,80}$/.test(name)) {
+    return;
+  }
+  if (name === "skill" || name === "skills" || name === "relevant" || name === "right" || name === "same" || name === "this") {
+    return;
+  }
+  if (requireExplicitMarker && !/[-:]/.test(name)) {
+    return;
+  }
+  names.add(name);
+}
+
 function imagesForNode(node: SceneNode): ContentImageRef[] {
   return node.type === "prompt" ? node.source.images : [];
 }
@@ -1039,6 +1127,7 @@ const metricFiles = queryRequired<HTMLElement>("#metric-files");
 const metricDiffs = queryRequired<HTMLElement>("#metric-diffs");
 const metricArtifacts = queryRequired<HTMLElement>("#metric-artifacts");
 const metricCompactions = queryRequired<HTMLElement>("#metric-compactions");
+const metricSkills = queryRequired<HTMLElement>("#metric-skills");
 const contextEventTitle = queryRequired<HTMLElement>("#context-event-title");
 const eventPopup = queryRequired<HTMLElement>("#event-popup");
 const topbar = queryRequired<HTMLElement>("#topbar");
@@ -1328,6 +1417,7 @@ const kindColor: Record<string, number> = {
   diff: 0x43d9ff,
   artifact: 0x9068ff,
   compaction: 0xf76fff,
+  skill: 0xf2df73,
   subagent: 0x8f7dff,
   "subagent-result": 0xc6b8ff,
   "file-add": 0x64f280,
@@ -2099,6 +2189,7 @@ function updateGraphChrome(): void {
   metricDiffs.textContent = formatNumber(mapMetrics.diff);
   metricArtifacts.textContent = formatNumber(mapMetrics.artifact);
   metricCompactions.textContent = formatNumber(mapMetrics.compaction);
+  metricSkills.textContent = formatNumber(mapMetrics.skill);
   renderContextPressure(current.tokenTelemetry);
   renderMetadataList();
   renderActiveModePanel();
@@ -2113,6 +2204,7 @@ function collectMapMetricCounts(): MapMetricCounts {
     diff: 0,
     artifact: 0,
     compaction: 0,
+    skill: 0,
   };
 
   nodes.forEach((node) => {
@@ -2501,6 +2593,7 @@ interface TranscriptEntry {
   title: string;
   body: string;
   eventIndex: number;
+  marker?: string;
 }
 
 type TranscriptPanelRow =
@@ -3541,15 +3634,18 @@ function callSceneNode(
   }: { kind?: string; title?: string; baseScale?: number; fileAxisX?: number; fileAxisZ?: number } = {}
 ): CallSceneNode {
   const callIsNew = call.eventIndex > newEventFloor;
+  const skillNames = skillNamesForCall(call);
+  const displayKind = skillNames.length ? "skill" : kind;
+  const displayTitle = skillNames.length ? skillUseTitle(skillNames) : title;
   return {
     id: call.id,
     type: "call",
-    kind,
+    kind: displayKind,
     promptId: prompt.id,
     promptIndex,
     callIndex,
     eventIndex: call.eventIndex ?? prompt.eventIndex ?? promptIndex,
-    title,
+    title: displayTitle,
     body: call.argumentPreview || "",
     detail: detailForCall(call),
     source: call,
@@ -3561,6 +3657,7 @@ function callSceneNode(
     fileAxisZ,
     baseScale,
     scale: baseScale,
+    skillNames,
   };
 }
 
@@ -3574,15 +3671,16 @@ function messageSceneNode(
   baseScale = 0.32
 ): MessageSceneNode {
   const messageIsNew = message.eventIndex > newEventFloor;
+  const skillNames = skillNamesFromText(message.text);
   return {
     id: message.id,
     type: "message",
-    kind: "assistant",
+    kind: skillNames.length ? "skill" : "assistant",
     promptId: prompt.id,
     promptIndex,
     callIndex,
     eventIndex: message.eventIndex ?? prompt.eventIndex ?? promptIndex,
-    title: "assistant message",
+    title: skillNames.length ? skillUseTitle(skillNames) : "assistant message",
     body: message.text,
     detail: message.text,
     source: message,
@@ -3592,6 +3690,7 @@ function messageSceneNode(
     target,
     baseScale,
     scale: baseScale,
+    skillNames,
   };
 }
 
@@ -6714,7 +6813,11 @@ function modeRowFromSceneNode(node: SceneNode): ModeEventRow {
   const toolName = node.type === "call" ? node.source.name : "";
   const filePath = node.type === "fileChange" ? node.source.path : "";
   const detail = [node.detail, node.body].filter(Boolean).join("\n");
+  const skillNames = skillNamesForNode(node);
   const flags = new Set<string>();
+  if (skillNames.length) {
+    flags.add("skill");
+  }
   if (nodeMatchesMetric(node, "error") || errorishText(`${node.title} ${detail}`)) {
     flags.add("error");
   }
@@ -6736,10 +6839,10 @@ function modeRowFromSceneNode(node: SceneNode): ModeEventRow {
     eventIndex: node.eventIndex,
     lineNumber: node.eventIndex + 1,
     role,
-    eventType: node.type === "fileChange" ? `file_${node.source.changeType}` : node.type,
+    eventType: skillNames.length ? "skill_use" : node.type === "fileChange" ? `file_${node.source.changeType}` : node.type,
     toolName,
     filePath,
-    title: node.title,
+    title: skillNames.length ? skillUseTitle(skillNames) : node.title,
     detail: [duration, detail].filter(Boolean).join("\n"),
     timestamp: node.type === "call" ? node.source.startedAt || node.source.completedAt : node.source.timestamp,
     flags: [...flags],
@@ -6811,7 +6914,7 @@ function modeRowMatchesFilters(row: ModeEventRow): boolean {
 function renderModeRow(row: ModeEventRow): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `mode-row ${row.node?.id === selectedNodeId ? "active" : ""}`;
+  button.className = `mode-row ${row.node?.id === selectedNodeId ? "active" : ""} ${row.flags.includes("skill") ? "skill-row" : ""}`;
   const line = document.createElement("code");
   line.textContent = [`L${row.lineNumber}`, formatModeTimestamp(row.timestamp)].filter(Boolean).join("\n");
   const kind = document.createElement("small");
@@ -6996,11 +7099,13 @@ function transcriptEntriesForPrompt(prompt: PromptNode): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   promptActivityUnits(prompt, prompt.calls).forEach((unit) => {
     if (unit.type === "assistant") {
+      const skillNames = skillNamesFromText(unit.message.text);
       entries.push({
-        label: "Assistant",
-        title: "Response",
+        label: skillNames.length ? "Skill" : "Assistant",
+        title: skillNames.length ? skillUseTitle(skillNames) : "Response",
         body: unit.message.text,
         eventIndex: unit.message.eventIndex,
+        marker: skillNames.length ? "skill" : undefined,
       });
       unit.calls.forEach((call) => entries.push(...transcriptEntriesForCall(call)));
       return;
@@ -7019,17 +7124,20 @@ function transcriptEntriesForPrompt(prompt: PromptNode): TranscriptEntry[] {
 }
 
 function transcriptEntriesForCall(call: CallNode): TranscriptEntry[] {
+  const skillNames = skillNamesForCall(call);
   const argumentText = call.argumentPreview || "No arguments logged.";
   const resultText = call.outputPreview || (call.status === "completed" ? "No result preview logged." : `Status: ${call.status}`);
+  const toolLabel = skillNames.length ? "Skill" : "Tool";
+  const toolTitle = skillNames.length ? `${skillUseTitle(skillNames)} (${call.status})` : `${call.name} (${call.status})`;
   return [
-    { label: "Tool", title: `${call.name} (${call.status})`, body: argumentText, eventIndex: call.eventIndex },
-    { label: "Result", title: call.name, body: resultText, eventIndex: call.eventIndex },
+    { label: toolLabel, title: toolTitle, body: argumentText, eventIndex: call.eventIndex, marker: skillNames.length ? "skill" : undefined },
+    { label: "Result", title: call.name, body: resultText, eventIndex: call.eventIndex, marker: skillNames.length ? "skill" : undefined },
   ];
 }
 
 function transcriptStep(entry: TranscriptEntry): HTMLElement {
   const row = document.createElement("div");
-  row.className = "transcript-step";
+  row.className = `transcript-step ${entry.marker ?? ""}`;
   const badge = document.createElement("code");
   badge.textContent = entry.label;
   const content = document.createElement("div");
@@ -8706,6 +8814,9 @@ function nodeMatchesMetric(node: SceneNode, metric: Metric | null): boolean {
   if (metric === "compaction") {
     return node.type === "compaction";
   }
+  if (metric === "skill") {
+    return nodeIsSkillUse(node);
+  }
   if (node.type === "compaction") {
     return false;
   }
@@ -8739,6 +8850,9 @@ function fileChangeSearchText(change: FileChangeNode): string {
 }
 
 function callMatchesMetric(call: CallNode, metric: Metric): boolean {
+  if (metric === "skill") {
+    return call.kind.toLowerCase() === "skill" || skillNamesForCall(call).length > 0;
+  }
   if (metric === "long") {
     return isLongCall(call);
   }
