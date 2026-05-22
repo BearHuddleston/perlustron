@@ -15,6 +15,7 @@
   --red: #ff6b6b;
   --violet: #b68cff;
   --pink: #ff87c3;
+  --skill: #f2df73;
   --mono: "Cascadia Mono", Consolas, monospace;
   --surface: rgba(11, 13, 17, 0.76);
   --surface-strong: rgba(15, 18, 24, 0.94);
@@ -808,6 +809,10 @@ kbd {
   color: var(--pink);
 }
 
+.skill {
+  color: var(--skill);
+}
+
 #scene-frame {
   position: relative;
   width: 100%;
@@ -1120,6 +1125,17 @@ kbd {
   color: var(--green);
 }
 
+.mode-row.skill-row {
+  padding-left: 10px;
+  border-left: 2px solid rgba(242, 223, 115, 0.56);
+  background: rgba(242, 223, 115, 0.035);
+}
+
+.mode-row.skill-row:hover,
+.mode-row.skill-row.active {
+  color: var(--skill);
+}
+
 .mode-row code,
 .mode-card code {
   font-family: var(--mono);
@@ -1324,6 +1340,15 @@ kbd {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.transcript-step.skill {
+  border-left-color: rgba(242, 223, 115, 0.56);
+  background: rgba(242, 223, 115, 0.035);
+}
+
+.transcript-step.skill code {
+  color: var(--skill);
 }
 
 .transcript-step strong {

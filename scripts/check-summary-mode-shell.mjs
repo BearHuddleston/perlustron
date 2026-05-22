@@ -90,6 +90,7 @@ expect(html.includes('data-maturity="beta"') && html.includes('data-maturity="ex
 expect(html.includes('data-status="Beta"') && html.includes('data-status="Experimental"') && html.includes('data-status="Advanced"'), "Mode tabs should expose beta, experimental, and advanced maturity labels.");
 expect(html.includes('id="mode-panel-status"'), "Mode panel should show a per-page maturity label.");
 expect(html.includes('id="metric-prompts"'), "Map metric HUD should count rendered prompt nodes instead of showing an uncounted Turn label.");
+expect(html.includes('id="metric-skills"'), "Map metric HUD should expose a Skills filter for inferred skill usage.");
 expect(/data-view-action="two-d"[^>]+aria-pressed="false"/.test(html), "2D view control should render as a toggle button with an initial pressed state.");
 expect(!html.includes('aria-label="Session metadata"'), "Session metadata should not be a sidebar card.");
 expect(!html.includes('id="inspector-dock"'), "Sessions sidebar should be removed from the shell.");
@@ -256,6 +257,8 @@ expect(styles.includes(".metric-label") && styles.includes(".map-metrics button.
 expect(!styles.includes(".legend"), "Metric legend styling should be removed after moving filters into the map HUD.");
 expect(app.includes("function collectMapMetricCounts"), "Metric HUD counts should be derived from the rendered map node set.");
 expect(app.includes("metricPrompts.textContent = formatNumber(mapMetrics.prompts)"), "Metric HUD should show rendered prompt node count.");
+expect(app.includes("metricSkills.textContent = formatNumber(mapMetrics.skill)"), "Metric HUD should show rendered skill-use count.");
+expect(app.includes('const METRICS = ["error", "long", "file", "diff", "artifact", "compaction", "skill"]'), "Metric filtering should include skill-use nodes.");
 expect(!app.includes("overviewHidden"), "Overview should render subagent internals instead of collapsing them.");
 expect(
   app.includes("function addSubagentInspectionNodes") &&
