@@ -29,11 +29,15 @@ interface AppModeMaturityInfo {
   title: string;
 }
 type Metric = "error" | "long" | "file" | "diff" | "artifact" | "compaction" | "skill";
+type NodeRole = "prompt" | "local" | "patch" | "browser" | "web" | "coordination" | "message";
+type CallNodeRole = Exclude<NodeRole, "prompt" | "message">;
+type MapRoleMetric = "prompts" | "local" | "patch" | "browser" | "web" | "coordination" | "messages";
+type MapFilter = { kind: "metric"; metric: Metric } | { kind: "role"; role: NodeRole };
 type MetadataIcon = "codex" | "source" | "git" | "policy" | "model" | "tools";
 type ViewAction = "zoom-in" | "zoom-out" | "two-d" | "overview";
 type SceneBucket = "prompt" | "call" | "fileChange" | "message" | "compaction";
 type OverviewCameraMode = "three-d" | "two-d";
-type MapMetricCounts = Record<Metric, number> & { prompts: number };
+type MapMetricCounts = Record<Metric | MapRoleMetric, number>;
 type Connector =
   | [string, string]
   | {
@@ -46,6 +50,17 @@ type TimerId = ReturnType<typeof setTimeout>;
 const DEFAULT_APP_MODES = ["summary", "map", "timeline", "transcript"] as const satisfies readonly AppMode[];
 const APP_MODES = [...DEFAULT_APP_MODES, "health", "insights", "diff", "raw", "export", "settings"] as const satisfies readonly AppMode[];
 const METRICS = ["error", "long", "file", "diff", "artifact", "compaction", "skill"] as const satisfies readonly Metric[];
+const NODE_ROLES = ["prompt", "local", "patch", "browser", "web", "coordination", "message"] as const satisfies readonly NodeRole[];
+const CALL_NODE_ROLES = ["local", "patch", "browser", "web", "coordination"] as const satisfies readonly CallNodeRole[];
+const NODE_ROLE_METRICS = {
+  prompt: "prompts",
+  local: "local",
+  patch: "patch",
+  browser: "browser",
+  web: "web",
+  coordination: "coordination",
+  message: "messages",
+} as const satisfies Record<NodeRole, MapRoleMetric>;
 const LONG_CALL_DURATION_MS = 30_000;
 const RAW_TEXT_LINE_HEIGHT = 18;
 const RAW_TEXT_FULL_RENDER_LINE_LIMIT = 3_000;
@@ -1121,6 +1136,12 @@ const contextPressureBars = queryRequired<HTMLElement>("#context-pressure-bars")
 const turnNumber = queryRequired<HTMLElement>("#turn-number");
 const turnTimestamp = queryRequired<HTMLElement>("#turn-timestamp");
 const metricPrompts = queryRequired<HTMLElement>("#metric-prompts");
+const metricLocal = queryRequired<HTMLElement>("#metric-local");
+const metricPatch = queryRequired<HTMLElement>("#metric-patch");
+const metricBrowser = queryRequired<HTMLElement>("#metric-browser");
+const metricWeb = queryRequired<HTMLElement>("#metric-web");
+const metricCoordination = queryRequired<HTMLElement>("#metric-coordination");
+const metricMessages = queryRequired<HTMLElement>("#metric-messages");
 const metricErrors = queryRequired<HTMLElement>("#metric-errors");
 const metricLong = queryRequired<HTMLElement>("#metric-long");
 const metricFiles = queryRequired<HTMLElement>("#metric-files");
@@ -1128,6 +1149,15 @@ const metricDiffs = queryRequired<HTMLElement>("#metric-diffs");
 const metricArtifacts = queryRequired<HTMLElement>("#metric-artifacts");
 const metricCompactions = queryRequired<HTMLElement>("#metric-compactions");
 const metricSkills = queryRequired<HTMLElement>("#metric-skills");
+const nodeRoleMetricElements: Record<NodeRole, HTMLElement> = {
+  prompt: metricPrompts,
+  local: metricLocal,
+  patch: metricPatch,
+  browser: metricBrowser,
+  web: metricWeb,
+  coordination: metricCoordination,
+  message: metricMessages,
+};
 const contextEventTitle = queryRequired<HTMLElement>("#context-event-title");
 const eventPopup = queryRequired<HTMLElement>("#event-popup");
 const topbar = queryRequired<HTMLElement>("#topbar");
@@ -1153,6 +1183,7 @@ const modeFilterRedacted = queryRequired<HTMLInputElement>("#mode-filter-redacte
 const modeFilterUtc = queryRequired<HTMLInputElement>("#mode-filter-utc");
 const viewActionButtons = queryAll<HTMLButtonElement>("[data-view-action]");
 const metricButtons = queryAll<HTMLButtonElement>("[data-metric]");
+const nodeRoleButtons = queryAll<HTMLButtonElement>("[data-node-role]");
 const modeButtons = queryAll<HTMLButtonElement>("[data-app-mode]");
 const sourceButtons = queryAll<HTMLButtonElement>("[data-source]");
 const sessionSelect = queryRequired<HTMLSelectElement>("#session-select");
@@ -1330,6 +1361,7 @@ let nodes: SceneNode[] = [];
 let connectors: Connector[] = [];
 let nodeById = new Map<string, SceneNode>();
 let nodesByPromptId = new Map<string, SceneNode[]>();
+let rolesByPromptId = new Map<string, Set<NodeRole>>();
 let activeConnectors: Connector[] = [];
 let meshBuckets: Partial<Record<SceneBucket, NodeInstancedMesh>> = {};
 let lineMesh: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
@@ -1361,7 +1393,7 @@ let unknownsReport: UnknownsReport | null = null;
 let unknownsLoading = false;
 let unknownsError: string | null = null;
 let unknownsReportPromise: Promise<UnknownsReport | null> | null = null;
-let activeMetric: Metric | null = null;
+let activeMapFilter: MapFilter | null = null;
 let searchTerm = "";
 let rawPayload: unknown = null;
 const virtualScrollTopByMode: Partial<Record<AppMode, number>> = {};
@@ -1403,27 +1435,28 @@ let lastFrameTime = performance.now() / 1000;
 let elapsedTime = 0;
 
 const kindColor: Record<string, number> = {
-  prompt: 0x63e7ff,
-  local: 0xf2be5c,
-  browser: 0x71f2a2,
-  web: 0x7d93ff,
-  coordination: 0xf26d6d,
-  tool: 0xb7c8cc,
-  assistant: 0xffffff,
-  message: 0xffffff,
-  error: 0xff5f66,
-  long: 0xffbd4a,
-  file: 0x64f280,
-  diff: 0x43d9ff,
-  artifact: 0x9068ff,
-  compaction: 0xf76fff,
-  skill: 0xf2df73,
-  subagent: 0x8f7dff,
-  "subagent-result": 0xc6b8ff,
-  "file-add": 0x64f280,
-  "file-update": 0x43d9ff,
-  "file-delete": 0xff5f66,
-  "file-move": 0xffbd4a,
+  prompt: 0x2df3ff,
+  local: 0xffc247,
+  patch: 0xc86bff,
+  browser: 0x39ff95,
+  web: 0x4d8dff,
+  coordination: 0xff58d2,
+  tool: 0x9fb6c3,
+  assistant: 0xf8fbff,
+  message: 0xf8fbff,
+  error: 0xff4761,
+  long: 0xff7a1a,
+  file: 0xb7ff3d,
+  diff: 0x00c2a8,
+  artifact: 0x8a3dff,
+  compaction: 0xff9eea,
+  skill: 0xfaff00,
+  subagent: 0xb084ff,
+  "subagent-result": 0xe2c6ff,
+  "file-add": 0xb7ff3d,
+  "file-update": 0x00c2a8,
+  "file-delete": 0xff4761,
+  "file-move": 0xff7a1a,
 };
 
 function normalizeSource(value: string | null | undefined): SessionSource {
@@ -1837,6 +1870,7 @@ function resetSessionViewState(): void {
   connectors = [];
   nodeById.clear();
   nodesByPromptId.clear();
+  rolesByPromptId.clear();
   clearWorkflowMeshes();
   resetEventContext();
 }
@@ -2004,7 +2038,7 @@ function followLatestGraphUpdate(previousFocus: THREE.Vector3 | null = null): vo
 }
 
 function shouldAutoFollowLiveGraph(): boolean {
-  return isTailing && !userPinnedCamera && !searchTerm && !activeMetric;
+  return isTailing && !userPinnedCamera && !searchTerm && !activeMapFilter;
 }
 
 function markManualCameraNavigation(): void {
@@ -2182,7 +2216,9 @@ function updateGraphChrome(): void {
   const mapMetrics = collectMapMetricCounts();
   stageTurnCount.textContent = formatNumber(ui.totalTurns);
   stageStarted.textContent = recordMetricValue(current.lineCount, current.pendingBytes);
-  metricPrompts.textContent = formatNumber(mapMetrics.prompts);
+  NODE_ROLES.forEach((role) => {
+    nodeRoleMetricElements[role].textContent = formatNumber(mapMetrics[NODE_ROLE_METRICS[role]]);
+  });
   metricErrors.textContent = formatNumber(mapMetrics.error);
   metricLong.textContent = formatNumber(mapMetrics.long);
   metricFiles.textContent = formatNumber(mapMetrics.file);
@@ -2198,6 +2234,12 @@ function updateGraphChrome(): void {
 function collectMapMetricCounts(): MapMetricCounts {
   const counts: MapMetricCounts = {
     prompts: 0,
+    local: 0,
+    patch: 0,
+    browser: 0,
+    web: 0,
+    coordination: 0,
+    messages: 0,
     error: 0,
     long: 0,
     file: 0,
@@ -2211,8 +2253,11 @@ function collectMapMetricCounts(): MapMetricCounts {
     if (!nodeVisibleInCurrentMode(node)) {
       return;
     }
+    const role = directNodeRole(node);
+    if (role) {
+      counts[NODE_ROLE_METRICS[role]] += 1;
+    }
     if (node.type === "prompt") {
-      counts.prompts += 1;
       return;
     }
     METRICS.forEach((metric) => {
@@ -2439,6 +2484,7 @@ function captureNodeMotionState(): Map<string, MotionState> {
 function indexSceneNodes(): void {
   nodeById = new Map();
   nodesByPromptId = new Map();
+  rolesByPromptId = new Map();
   nodes.forEach((node) => {
     nodeById.set(node.id, node);
     const promptNodes = nodesByPromptId.get(node.promptId);
@@ -2446,6 +2492,15 @@ function indexSceneNodes(): void {
       promptNodes.push(node);
     } else {
       nodesByPromptId.set(node.promptId, [node]);
+    }
+    const role = directNodeRole(node);
+    if (role && role !== "prompt") {
+      const promptRoles = rolesByPromptId.get(node.promptId);
+      if (promptRoles) {
+        promptRoles.add(role);
+      } else {
+        rolesByPromptId.set(node.promptId, new Set([role]));
+      }
     }
   });
 }
@@ -3635,7 +3690,7 @@ function callSceneNode(
 ): CallSceneNode {
   const callIsNew = call.eventIndex > newEventFloor;
   const skillNames = skillNamesForCall(call);
-  const displayKind = skillNames.length ? "skill" : kind;
+  const displayKind = skillNames.length ? "skill" : isPatchCall(call) ? "patch" : kind;
   const displayTitle = skillNames.length ? skillUseTitle(skillNames) : title;
   return {
     id: call.id,
@@ -5748,13 +5803,13 @@ function colorForNode(node: SceneNode, selected: boolean): THREE.Color {
   if (!nodeVisibleInCurrentView(node)) {
     scratchColor.setRGB(0, 0, 0);
   } else if (selected) {
-    scratchColor.lerp(whiteColor, 0.38);
+    scratchColor.lerp(whiteColor, 0.26);
   } else if (node.isNew) {
-    scratchColor.lerp(whiteColor, 0.24);
+    scratchColor.lerp(whiteColor, 0.14);
   } else if (mode === "inspect" && node.promptId !== activePromptId) {
-    scratchColor.multiplyScalar(0.34);
+    scratchColor.multiplyScalar(0.42);
   } else if (!nodeMatchesSearch(node)) {
-    scratchColor.multiplyScalar(0.38);
+    scratchColor.multiplyScalar(0.46);
   }
   return scratchColor;
 }
@@ -5764,7 +5819,7 @@ function nodeVisibleInCurrentMode(node: SceneNode): boolean {
 }
 
 function nodeVisibleInCurrentView(node: SceneNode): boolean {
-  return nodeVisibleInCurrentMode(node) && (!activeMetric || nodeMatchesMetric(node, activeMetric));
+  return nodeVisibleInCurrentMode(node) && nodeMatchesActiveMapFilter(node);
 }
 
 function resize(): void {
@@ -8466,6 +8521,12 @@ function setupControls() {
     });
   });
 
+  nodeRoleButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      selectNodeRole(oneOf(NODE_ROLES, button.dataset.nodeRole, "prompt"));
+    });
+  });
+
   settingsButton.addEventListener("click", () => {
     selectAppMode("settings");
   });
@@ -8793,8 +8854,30 @@ function orderedSelectableNodes(): SceneNode[] {
 }
 
 function selectMetric(metric: Metric): void {
-  activeMetric = activeMetric === metric ? null : metric;
-  setActiveButton(metricButtons, (button) => button.dataset.metric === activeMetric);
+  selectMapFilter({ kind: "metric", metric });
+}
+
+function selectNodeRole(role: NodeRole): void {
+  selectMapFilter({ kind: "role", role });
+}
+
+function selectMapFilter(filter: MapFilter): void {
+  activeMapFilter = mapFilterMatches(activeMapFilter, filter) ? null : filter;
+  refreshMapFilterView();
+}
+
+function mapFilterMatches(left: MapFilter | null, right: MapFilter): boolean {
+  if (!left || left.kind !== right.kind) {
+    return false;
+  }
+  if (left.kind === "metric" && right.kind === "metric") {
+    return left.metric === right.metric;
+  }
+  return left.kind === "role" && right.kind === "role" && left.role === right.role;
+}
+
+function refreshMapFilterView(): void {
+  syncMapFilterButtons();
   if (mode === "inspect") {
     mode = "overview";
     activePromptId = null;
@@ -8805,6 +8888,59 @@ function selectMetric(metric: Metric): void {
     updatePointMarkers();
   }
   syncInstanceColors();
+}
+
+function syncMapFilterButtons(): void {
+  setActiveButton(
+    metricButtons,
+    (button) => activeMapFilter?.kind === "metric" && button.dataset.metric === activeMapFilter.metric
+  );
+  setActiveButton(
+    nodeRoleButtons,
+    (button) => activeMapFilter?.kind === "role" && button.dataset.nodeRole === activeMapFilter.role
+  );
+}
+
+function nodeMatchesActiveMapFilter(node: SceneNode): boolean {
+  if (!activeMapFilter) {
+    return true;
+  }
+  return activeMapFilter.kind === "metric"
+    ? nodeMatchesMetric(node, activeMapFilter.metric)
+    : nodeMatchesRole(node, activeMapFilter.role);
+}
+
+function nodeMatchesRole(node: SceneNode, role: NodeRole | null): boolean {
+  if (!role) {
+    return true;
+  }
+  if (node.type === "prompt") {
+    if (role === "prompt") {
+      return true;
+    }
+    return rolesByPromptId.get(node.id)?.has(role) ?? false;
+  }
+  if (role === "prompt") {
+    return false;
+  }
+  return directNodeRole(node) === role;
+}
+
+function directNodeRole(node: SceneNode): NodeRole | null {
+  if (node.type === "prompt") {
+    return "prompt";
+  }
+  if (node.type === "message") {
+    return "message";
+  }
+  if (node.type === "call" && isCallNodeRole(node.kind)) {
+    return node.kind;
+  }
+  return null;
+}
+
+function isCallNodeRole(kind: string): kind is CallNodeRole {
+  return (CALL_NODE_ROLES as readonly string[]).includes(kind);
 }
 
 function nodeMatchesMetric(node: SceneNode, metric: Metric | null): boolean {
@@ -8872,6 +9008,10 @@ function callMatchesMetric(call: CallNode, metric: Metric): boolean {
     return kind === "artifact" || callNameMatches(call.name, ["artifact"]);
   }
   return false;
+}
+
+function isPatchCall(call: Pick<CallNode, "name">): boolean {
+  return callNameMatches(call.name, ["apply_patch"]);
 }
 
 function isLongCall(call: Pick<CallNode, "durationMs">): boolean {

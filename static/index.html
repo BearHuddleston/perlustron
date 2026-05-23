@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=200046417130951" />
+    <link rel="stylesheet" href="/styles.css?v=242325298162131" />
   </head>
   <body>
     <main id="app">
@@ -178,14 +178,20 @@
             <div class="map-live-hud" aria-label="Map status">
               <div class="live-chip"><span></span>LIVE</div>
               <div class="map-metrics" aria-label="Metric filters">
-                <span class="metric-label turn">Prompts <b id="metric-prompts">0</b></span>
-                <button type="button" data-metric="error"><span class="metric-dot error"></span>Errors <b id="metric-errors">0</b></button>
-                <button type="button" data-metric="long"><span class="metric-dot long"></span>Long calls <b id="metric-long">0</b></button>
-                <button type="button" data-metric="file"><span class="metric-dot file"></span>Files <b id="metric-files">0</b></button>
-                <button type="button" data-metric="diff"><span class="metric-dot diff"></span>Diffs <b id="metric-diffs">0</b></button>
-                <button type="button" data-metric="artifact"><span class="metric-dot artifact"></span>Artifacts <b id="metric-artifacts">0</b></button>
-                <button type="button" data-metric="compaction"><span class="metric-dot compaction"></span>Compactions <b id="metric-compactions">0</b></button>
-                <button type="button" data-metric="skill"><span class="metric-dot skill"></span>Skills <b id="metric-skills">0</b></button>
+                <button class="prompt" type="button" data-node-role="prompt"><span class="metric-dot"></span>Prompts <b id="metric-prompts">0</b></button>
+                <button class="local" type="button" data-node-role="local"><span class="metric-dot"></span>Local <b id="metric-local">0</b></button>
+                <button class="patch" type="button" data-node-role="patch"><span class="metric-dot"></span>Patch <b id="metric-patch">0</b></button>
+                <button class="browser" type="button" data-node-role="browser"><span class="metric-dot"></span>Browser <b id="metric-browser">0</b></button>
+                <button class="web" type="button" data-node-role="web"><span class="metric-dot"></span>Web <b id="metric-web">0</b></button>
+                <button class="coordination" type="button" data-node-role="coordination"><span class="metric-dot"></span>Coord <b id="metric-coordination">0</b></button>
+                <button class="message" type="button" data-node-role="message"><span class="metric-dot"></span>Messages <b id="metric-messages">0</b></button>
+                <button class="error" type="button" data-metric="error"><span class="metric-dot"></span>Errors <b id="metric-errors">0</b></button>
+                <button class="long" type="button" data-metric="long"><span class="metric-dot"></span>Long calls <b id="metric-long">0</b></button>
+                <button class="file" type="button" data-metric="file"><span class="metric-dot"></span>Files <b id="metric-files">0</b></button>
+                <button class="diff" type="button" data-metric="diff"><span class="metric-dot"></span>Diffs <b id="metric-diffs">0</b></button>
+                <button class="artifact" type="button" data-metric="artifact"><span class="metric-dot"></span>Artifacts <b id="metric-artifacts">0</b></button>
+                <button class="compaction" type="button" data-metric="compaction"><span class="metric-dot"></span>Compactions <b id="metric-compactions">0</b></button>
+                <button class="skill" type="button" data-metric="skill"><span class="metric-dot"></span>Skills <b id="metric-skills">0</b></button>
               </div>
             </div>
           </div>
@@ -198,6 +204,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v200046417130951.js"></script>
+    <script type="module" src="/app-v242325298162131.js"></script>
   </body>
 </html>
