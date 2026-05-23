@@ -741,16 +741,12 @@ kbd {
   display: none;
 }
 
-.metric-label,
 .map-metrics button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   font-size: 13px;
   white-space: nowrap;
-}
-
-.map-metrics button {
   height: 30px;
   padding: 0;
   border: 0;
@@ -761,8 +757,7 @@ kbd {
 
 .map-metrics button:hover,
 .map-metrics button.active {
-  border-bottom-color: var(--green);
-  color: var(--green);
+  border-bottom-color: currentColor;
 }
 
 .map-metrics b {
@@ -771,7 +766,6 @@ kbd {
   font-weight: 700;
 }
 
-.metric-label::before,
 .metric-dot {
   content: "";
   width: 9px;
@@ -781,36 +775,68 @@ kbd {
   box-shadow: 0 0 12px currentColor;
 }
 
-.turn {
-  color: var(--blue);
+.map-metrics .prompt {
+  color: #2df3ff;
 }
 
+.map-metrics .local {
+  color: #ffc247;
+}
+
+.map-metrics .patch,
+.patch {
+  color: #c86bff;
+}
+
+.map-metrics .browser {
+  color: #39ff95;
+}
+
+.map-metrics .web {
+  color: #4d8dff;
+}
+
+.map-metrics .coordination {
+  color: #ff58d2;
+}
+
+.map-metrics .message {
+  color: #f8fbff;
+}
+
+.map-metrics .error,
 .error {
-  color: var(--red);
+  color: #ff4761;
 }
 
+.map-metrics .long,
 .long {
-  color: var(--amber);
+  color: #ff7a1a;
 }
 
+.map-metrics .file,
 .file {
-  color: var(--green);
+  color: #b7ff3d;
 }
 
+.map-metrics .diff,
 .diff {
-  color: var(--cyan);
+  color: #00c2a8;
 }
 
+.map-metrics .artifact,
 .artifact {
-  color: var(--violet);
+  color: #8a3dff;
 }
 
+.map-metrics .compaction,
 .compaction {
-  color: var(--pink);
+  color: #ff9eea;
 }
 
+.map-metrics .skill,
 .skill {
-  color: var(--skill);
+  color: #faff00;
 }
 
 #scene-frame {

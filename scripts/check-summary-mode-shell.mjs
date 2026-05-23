@@ -253,10 +253,15 @@ expect(styles.includes("#space.grabbing"), "Map canvas should expose a grabbing 
 expect(/position:\s*absolute/.test(mapLiveHud) && /bottom:\s*16px/.test(mapLiveHud), "Map LIVE HUD should sit inside the map viewport.");
 expect(/display:\s*flex/.test(mapLiveHud) && /transform:\s*translateX\(-50%\)/.test(mapLiveHud), "Map LIVE HUD should align the LIVE chip and metrics together.");
 expect(/overflow-x:\s*auto/.test(mapMetrics) && /scrollbar-width:\s*none/.test(mapMetrics), "In-map metric filters should stay compact without exposing a header scrollbar.");
-expect(styles.includes(".metric-label") && styles.includes(".map-metrics button.active"), "In-map metric filters should keep their label and active metric styling.");
+expect(
+  html.includes('data-node-role="prompt"') && html.includes('data-node-role="patch"') && html.includes('data-node-role="browser"'),
+  "Role counters should be clickable map filters."
+);
+expect(styles.includes(".map-metrics button.active"), "In-map metric filters should keep their active metric styling.");
+expect(styles.includes(".map-metrics .patch"), "Apply-patch calls should have their own map/HUD color.");
 expect(!styles.includes(".legend"), "Metric legend styling should be removed after moving filters into the map HUD.");
 expect(app.includes("function collectMapMetricCounts"), "Metric HUD counts should be derived from the rendered map node set.");
-expect(app.includes("metricPrompts.textContent = formatNumber(mapMetrics.prompts)"), "Metric HUD should show rendered prompt node count.");
+expect(app.includes("nodeRoleMetricElements[role].textContent = formatNumber(mapMetrics[NODE_ROLE_METRICS[role]])"), "Metric HUD should show rendered role node counts.");
 expect(app.includes("metricSkills.textContent = formatNumber(mapMetrics.skill)"), "Metric HUD should show rendered skill-use count.");
 expect(app.includes('const METRICS = ["error", "long", "file", "diff", "artifact", "compaction", "skill"]'), "Metric filtering should include skill-use nodes.");
 expect(!app.includes("overviewHidden"), "Overview should render subagent internals instead of collapsing them.");
@@ -297,7 +302,12 @@ expect(
 expect(!app.includes("metricErrors.textContent = `${ui.metricErrors}`"), "Metric HUD error count should not use stale session-summary metrics.");
 expect(app.includes("mesh.frustumCulled = false") && app.includes("lineMesh.frustumCulled = false") && app.includes("nextPointMesh.frustumCulled = false"), "Dynamic map layers should not disappear from coarse frustum culling while navigating.");
 expect(app.includes("function nodeVisibleInCurrentView"), "Map metric filtering should have an explicit node visibility predicate.");
-expect(app.includes("!activeMetric || nodeMatchesMetric(node, activeMetric)"), "Metric filters should hide non-matching rendered nodes.");
+expect(app.includes("function nodeMatchesActiveMapFilter"), "Map filters should share a single visibility predicate.");
+expect(app.includes("nodeMatchesMetric(node, activeMapFilter.metric)"), "Metric filters should hide non-matching rendered nodes.");
+expect(app.includes("nodeMatchesRole(node, activeMapFilter.role)"), "Role filters should hide non-matching rendered nodes.");
+expect(app.includes("const nodeRoleButtons = queryAll<HTMLButtonElement>(\"[data-node-role]\")"), "Role filter buttons should be queried alongside metric filter buttons.");
+expect(app.includes("function selectMapFilter") && app.includes("function nodeMatchesRole"), "Filter clicks should share the in-place map filtering behavior.");
+expect(app.includes("function isPatchCall") && app.includes('"patch"'), "apply_patch tool calls should render as a distinct patch node kind.");
 expect(app.includes("!nodeVisibleInCurrentView(from) || !nodeVisibleInCurrentView(to)"), "Metric filters should hide connector segments attached to hidden nodes.");
 const selectMetricBlock = app.match(/function selectMetric[\s\S]*?\n}\n\nfunction nodeMatchesMetric/)?.[0] ?? "";
 expect(selectMetricBlock.length > 0, "selectMetric should remain discoverable for metric-filter behavior checks.");
