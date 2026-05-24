@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "build": "npm run typecheck && npm run build:frontend",
-    "build:frontend": "esbuild src/frontend/app.ts --bundle --format=esm --target=es2022 --minify --outfile=static/app.js && node scripts/clean-built-js.mjs && node scripts/sync-asset-version.mjs",
+    "build:frontend": "node scripts/build-frontend.mjs --minify",
     "dev": "npm run build:frontend && cargo run -- --demo --no-open --dev-assets",
-    "dev:frontend": "esbuild src/frontend/app.ts --bundle --format=esm --target=es2022 --outfile=static/app.js --watch",
+    "dev:frontend": "node scripts/build-frontend.mjs --watch",
     "bench:smoke": "cargo run --quiet -- bench --generate 250 --append-lines 25 --max-full-ms 1000 --max-status-ms 1000 --max-append-ms 1000",
     "smoke:browser": "npm run build:frontend && node scripts/smoke-browser.mjs",
     "offline:check": "node scripts/check-offline-assets.mjs",
