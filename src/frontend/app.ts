@@ -14,6 +14,7 @@ import {
   formatSessionModified,
   recordsLabel,
 } from "./utils/format";
+import { kindColor } from "./palette";
 import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
 
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
@@ -1433,31 +1434,6 @@ let orbitPanHasFloorAnchor = false;
 let suppressNextCanvasClick = false;
 let lastFrameTime = performance.now() / 1000;
 let elapsedTime = 0;
-
-const kindColor: Record<string, number> = {
-  prompt: 0x2df3ff,
-  local: 0xffc247,
-  patch: 0xc86bff,
-  browser: 0x39ff95,
-  web: 0x4d8dff,
-  coordination: 0xff58d2,
-  tool: 0x9fb6c3,
-  assistant: 0xf8fbff,
-  message: 0xf8fbff,
-  error: 0xff4761,
-  long: 0xff7a1a,
-  file: 0xb7ff3d,
-  diff: 0x00c2a8,
-  artifact: 0x8a3dff,
-  compaction: 0xff9eea,
-  skill: 0xfaff00,
-  subagent: 0xb084ff,
-  "subagent-result": 0xe2c6ff,
-  "file-add": 0xb7ff3d,
-  "file-update": 0x00c2a8,
-  "file-delete": 0xff4761,
-  "file-move": 0xff7a1a,
-};
 
 function normalizeSource(value: string | null | undefined): SessionSource {
   return value === "claude" ? "claude" : "codex";

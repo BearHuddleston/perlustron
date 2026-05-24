@@ -3,10 +3,12 @@
 import { readFileSync } from "node:fs";
 
 import { createCheck, cssBlockFor } from "./check-helpers.mjs";
+import { mapColorVariableKeys, paletteCssBlock, readFrontendPalette } from "./sync-frontend-palette.mjs";
 
 const html = readFileSync("static/index.html", "utf8");
 const app = readFileSync("src/frontend/app.ts", "utf8");
 const styles = readFileSync("static/styles.css", "utf8");
+const frontendPalette = await readFrontendPalette();
 
 const { expect, finish } = createCheck("Summary mode shell");
 
@@ -56,6 +58,7 @@ const metadataListIndex = html.indexOf('id="metadata-list"');
 const sceneFrameIndex = html.indexOf('id="scene-frame"');
 const metricFiltersIndex = html.indexOf('aria-label="Metric filters"');
 const mapLiveHudIndex = html.indexOf('class="map-live-hud"');
+const mapMetricColorStyles = styles.slice(styles.indexOf(".map-metrics .prompt"), styles.indexOf("#scene-frame"));
 
 expect(modeNavIndex >= 0, "Mode navigation should exist in static/index.html.");
 expect(betaBannerIndex > topActionsIndex && betaBannerIndex < modeNavIndex, "Beta banner should sit between the top bar and mode navigation.");
@@ -259,6 +262,17 @@ expect(
 );
 expect(styles.includes(".map-metrics button.active"), "In-map metric filters should keep their active metric styling.");
 expect(styles.includes(".map-metrics .patch"), "Apply-patch calls should have their own map/HUD color.");
+expect(styles.includes(paletteCssBlock(frontendPalette)), "Map color CSS variables should be generated from the frontend palette.");
+expect(!app.includes("const kindColor: Record<string, number> = {"), "WebGL node colors should not keep a duplicated inline palette.");
+expect(
+  mapColorVariableKeys(styles).every((key) => frontendPalette[key]),
+  "Every map color CSS variable should be backed by the frontend palette."
+);
+expect(
+  ["local", "patch", "file"].every((key) => mapColorVariableKeys(mapMetricColorStyles).includes(key)) &&
+    !/color:\s*#[0-9a-f]{6}/i.test(mapMetricColorStyles),
+  "Map metric colors should reference generated palette variables instead of duplicated hex values."
+);
 expect(!styles.includes(".legend"), "Metric legend styling should be removed after moving filters into the map HUD.");
 expect(app.includes("function collectMapMetricCounts"), "Metric HUD counts should be derived from the rendered map node set.");
 expect(app.includes("nodeRoleMetricElements[role].textContent = formatNumber(mapMetrics[NODE_ROLE_METRICS[role]])"), "Metric HUD should show rendered role node counts.");

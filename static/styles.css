@@ -29,6 +29,33 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+/* frontend-palette:start */
+:root {
+  --map-color-prompt: #2df3ff;
+  --map-color-local: #ffc247;
+  --map-color-patch: #c86bff;
+  --map-color-browser: #39ff95;
+  --map-color-web: #4d8dff;
+  --map-color-coordination: #ff58d2;
+  --map-color-tool: #9fb6c3;
+  --map-color-assistant: #f8fbff;
+  --map-color-message: #f8fbff;
+  --map-color-error: #ff4761;
+  --map-color-long: #ff7a1a;
+  --map-color-file: #b7ff3d;
+  --map-color-diff: #00c2a8;
+  --map-color-artifact: #8a3dff;
+  --map-color-compaction: #ff9eea;
+  --map-color-skill: #faff00;
+  --map-color-subagent: #b084ff;
+  --map-color-subagent-result: #e2c6ff;
+  --map-color-file-add: #b7ff3d;
+  --map-color-file-update: #00c2a8;
+  --map-color-file-delete: #ff4761;
+  --map-color-file-move: #ff7a1a;
+}
+/* frontend-palette:end */
+
 * {
   box-sizing: border-box;
 }
@@ -776,67 +803,67 @@ kbd {
 }
 
 .map-metrics .prompt {
-  color: #2df3ff;
+  color: var(--map-color-prompt);
 }
 
 .map-metrics .local {
-  color: #ffc247;
+  color: var(--map-color-local);
 }
 
 .map-metrics .patch,
 .patch {
-  color: #c86bff;
+  color: var(--map-color-patch);
 }
 
 .map-metrics .browser {
-  color: #39ff95;
+  color: var(--map-color-browser);
 }
 
 .map-metrics .web {
-  color: #4d8dff;
+  color: var(--map-color-web);
 }
 
 .map-metrics .coordination {
-  color: #ff58d2;
+  color: var(--map-color-coordination);
 }
 
 .map-metrics .message {
-  color: #f8fbff;
+  color: var(--map-color-message);
 }
 
 .map-metrics .error,
 .error {
-  color: #ff4761;
+  color: var(--map-color-error);
 }
 
 .map-metrics .long,
 .long {
-  color: #ff7a1a;
+  color: var(--map-color-long);
 }
 
 .map-metrics .file,
 .file {
-  color: #b7ff3d;
+  color: var(--map-color-file);
 }
 
 .map-metrics .diff,
 .diff {
-  color: #00c2a8;
+  color: var(--map-color-diff);
 }
 
 .map-metrics .artifact,
 .artifact {
-  color: #8a3dff;
+  color: var(--map-color-artifact);
 }
 
 .map-metrics .compaction,
 .compaction {
-  color: #ff9eea;
+  color: var(--map-color-compaction);
 }
 
 .map-metrics .skill,
 .skill {
-  color: #faff00;
+  color: var(--map-color-skill);
 }
 
 #scene-frame {
