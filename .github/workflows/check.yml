@@ -74,3 +74,6 @@ jobs:
 
       - name: Run benchmark smoke
         run: npm run bench:smoke
+
+      - name: Run large-session benchmark guardrail
+        run: npm run bench:large

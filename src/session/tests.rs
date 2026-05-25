@@ -2598,6 +2598,10 @@ fn cli_parses_demo_and_export_commands() {
         "--append-lines=50".to_owned(),
         "--max-full-ms".to_owned(),
         "500".to_owned(),
+        "--max-diff-ms=2000".to_owned(),
+        "--max-export-ms".to_owned(),
+        "4000".to_owned(),
+        "--max-sanitize-ms=6000".to_owned(),
     ])
     .unwrap();
     match bench {
@@ -2610,6 +2614,9 @@ fn cli_parses_demo_and_export_commands() {
             assert_eq!(generate_lines, Some(1000));
             assert_eq!(append_lines, 50);
             assert_eq!(thresholds.max_full_parse_ms, Some(500.0));
+            assert_eq!(thresholds.max_diff_ms, Some(2000.0));
+            assert_eq!(thresholds.max_export_ms, Some(4000.0));
+            assert_eq!(thresholds.max_sanitization_ms, Some(6000.0));
         }
         _ => panic!("expected bench action"),
     }
@@ -2662,6 +2669,9 @@ fn generated_benchmark_runs_full_status_and_append_parse() {
             max_full_parse_ms: Some(1_000.0),
             max_status_refresh_ms: Some(1_000.0),
             max_append_parse_ms: Some(1_000.0),
+            max_diff_ms: Some(1_000.0),
+            max_export_ms: Some(1_000.0),
+            max_sanitization_ms: Some(1_000.0),
         },
     )
     .unwrap();
