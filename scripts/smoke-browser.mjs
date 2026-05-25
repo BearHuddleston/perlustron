@@ -305,11 +305,20 @@ async function assertSummaryDeepLink(page, server) {
     facts: document.querySelectorAll(".summary-fact").length,
     hidden: document.querySelector("#mode-panel")?.classList.contains("hidden"),
     text: document.querySelector("#mode-panel")?.textContent || "",
+    verdictTitle: document.querySelector(".summary-verdict h3")?.textContent?.trim(),
+    verdictText: document.querySelector(".summary-verdict")?.textContent || "",
+    verdictCta: document.querySelector(".summary-verdict .summary-primary-cta")?.textContent?.trim(),
     visibleUrl: window.location.href,
   }));
   assert(summary.activeMode === "summary", "Summary deep link should activate the Summary tab");
   assert(summary.hidden === false, "Summary deep link should show the mode panel");
   assert(summary.facts >= 4, "Summary deep link should render summary fact sections");
+  assert(summary.verdictTitle === "Forensic Verdict", "Summary should lead with an answer-first Forensic Verdict card");
+  assert(summary.verdictText.includes("Outcome"), "Forensic Verdict should answer what happened first");
+  assert(summary.verdictText.includes("First critical event"), "Forensic Verdict should expose the first critical or suspicious event");
+  assert(summary.verdictText.includes("Highest-confidence finding"), "Forensic Verdict should name the top finding");
+  assert(summary.verdictText.includes("Safe-share state"), "Forensic Verdict should expose the safe-share/privacy state");
+  assert(summary.verdictCta === "Inspect Highest-Priority Finding", "Forensic Verdict should expose one obvious primary CTA");
   assert(summary.text.includes("API token required"), "Summary should expose token requirement status only");
   assert(summary.text.includes("Raw logs"), "Summary should expose raw log shareability status");
   assert(summary.visibleUrl.includes("mode=summary"), "Summary deep link should preserve mode=summary in the visible URL");
