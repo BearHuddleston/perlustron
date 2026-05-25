@@ -772,8 +772,48 @@ fn parse_bench_command(args: &[String]) -> Result<CliAction> {
                     Some(parse_millis_arg(args.get(index), "--max-append-ms")?);
             }
             arg if arg.starts_with("--max-append-ms=") => {
-                thresholds.max_append_parse_ms =
-                    Some(parse_millis_value(&arg["--max-append-ms=".len()..], "--max-append-ms")?);
+                thresholds.max_append_parse_ms = Some(parse_millis_value(
+                    &arg["--max-append-ms=".len()..],
+                    "--max-append-ms",
+                )?);
+            }
+            "--max-diff-ms" => {
+                index += 1;
+                thresholds.max_diff_ms = Some(parse_millis_arg(args.get(index), "--max-diff-ms")?);
+            }
+            arg if arg.starts_with("--max-diff-ms=") => {
+                thresholds.max_diff_ms = Some(parse_millis_value(
+                    &arg["--max-diff-ms=".len()..],
+                    "--max-diff-ms",
+                )?);
+            }
+            "--max-export-ms" => {
+                index += 1;
+                thresholds.max_export_ms =
+                    Some(parse_millis_arg(args.get(index), "--max-export-ms")?);
+            }
+            arg if arg.starts_with("--max-export-ms=") => {
+                thresholds.max_export_ms = Some(parse_millis_value(
+                    &arg["--max-export-ms=".len()..],
+                    "--max-export-ms",
+                )?);
+            }
+            "--max-sanitize-ms" | "--max-sanitization-ms" => {
+                let flag = args[index].as_str();
+                index += 1;
+                thresholds.max_sanitization_ms = Some(parse_millis_arg(args.get(index), flag)?);
+            }
+            arg if arg.starts_with("--max-sanitize-ms=") => {
+                thresholds.max_sanitization_ms = Some(parse_millis_value(
+                    &arg["--max-sanitize-ms=".len()..],
+                    "--max-sanitize-ms",
+                )?);
+            }
+            arg if arg.starts_with("--max-sanitization-ms=") => {
+                thresholds.max_sanitization_ms = Some(parse_millis_value(
+                    &arg["--max-sanitization-ms=".len()..],
+                    "--max-sanitization-ms",
+                )?);
             }
             arg if arg.starts_with('-') => return Err(anyhow!("unknown bench option `{arg}`")),
             path => {
@@ -1049,8 +1089,16 @@ Usage:
   perlustron insights SESSION.jsonl [--format text|json|html] [-o report] [--redacted]
   perlustron unknowns SESSION.jsonl [-o unknowns.json] [--redacted]
   perlustron fixture-report SESSION.jsonl --redacted -o fixture-report.md
-  perlustron bench SESSION.jsonl [--source codex|claude] [--append-lines 100]
-  perlustron bench --generate 10000 [--append-lines 100]
+  perlustron bench SESSION.jsonl [--source codex|claude] [--append-lines 100] [threshold options]
+  perlustron bench --generate 10000 [--append-lines 100] [threshold options]
+
+Bench threshold options:
+  --max-full-ms N           Fail if full parse exceeds N milliseconds
+  --max-status-ms N         Fail if warm status refresh exceeds N milliseconds
+  --max-append-ms N         Fail if append parse exceeds N milliseconds
+  --max-diff-ms N           Fail if warm diff exceeds N milliseconds
+  --max-export-ms N         Fail if HTML export exceeds N milliseconds
+  --max-sanitize-ms N       Fail if sanitization exceeds N milliseconds
 
 Serve options:
   --demo [codex|claude]       Run with a bundled sanitized demo fixture

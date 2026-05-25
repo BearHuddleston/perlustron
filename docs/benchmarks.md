@@ -1,10 +1,10 @@
 # Benchmarks
 
-Perlustron ships a small `bench` subcommand for parser and status-cache smoke testing. Current performance guardrails are parser tests, status caching tests, the CI benchmark smoke, and the UI performance choices documented in `docs/ui-performance-research.md`.
+Perlustron ships a small `bench` subcommand for parser, status-cache, diff, export, sanitization, and unknown-report smoke testing. Current performance guardrails are parser tests, status caching tests, the CI benchmark smoke, the CI 10k large-session guardrail, and the UI performance choices documented in `docs/ui-performance-research.md`.
 
 ## Local Measurements
 
-Use a generated sanitized Codex session when you want a repeatable local baseline:
+Use generated sanitized Codex sessions when you want a repeatable local baseline:
 
 ```powershell
 perlustron bench --generate 10000 --append-lines 100
@@ -26,17 +26,42 @@ Measure-Command { perlustron export fixtures/codex-loop-error.jsonl --format htm
 Measure-Command { perlustron sanitize fixtures/codex-loop-error.jsonl -o $env:TEMP\perlustron-sanitized.jsonl }
 ```
 
+## Baseline Expectations
+
+These numbers are audit baselines from the `v0.1.0` development cycle. They are not promises for every developer machine or GitHub-hosted runner; use them to spot obvious regressions and record the machine/runtime context in PR or release notes.
+
+| Generated lines | Full parse | Status refresh | Append parse | Warm diff | HTML export | Sanitization |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 250 | 8.38 ms | 3.79 ms | 4.68 ms | 8.26 ms | 13.31 ms | 43.19 ms |
+| 10k | 323.53 ms | 18.99 ms | 156.44 ms | 281.44 ms | 522.23 ms | 717.54 ms |
+| 100k | 3.25 s | 113.47 ms | 1.58 s | 2.95 s | 5.33 s | 6.90 s |
+
+Expected local development targets on a typical laptop are:
+
+- 10k generated lines: full parse under 1 second, status refresh under 100 ms, append parse under 250 ms, warm diff under 1 second, HTML export under 2 seconds, and sanitization under 2 seconds.
+- 100k generated lines: use for manual regression checks before parser/export/sanitize/diff-heavy releases; timings are hardware dependent and should be recorded in PR or release notes.
+
 ## Thresholds
 
 Threshold flags make local and CI smoke checks fail when a measurement exceeds the selected bound:
 
 ```powershell
-perlustron bench --generate 10000 --append-lines 100 --max-full-ms 1000 --max-status-ms 100 --max-append-ms 250
+perlustron bench --generate 10000 --append-lines 100 --max-full-ms 5000 --max-status-ms 1000 --max-append-ms 3000 --max-diff-ms 5000 --max-export-ms 10000 --max-sanitize-ms 12000
 ```
 
-Expected local development targets on a typical laptop are:
+The intentionally loose 10k CI gate is available as:
 
-- 10k generated lines: full parse under 1 second, status refresh under 100 ms, append parse under 250 ms.
-- 100k generated lines: use for manual regression checks before parser or renderer-heavy releases; timings are hardware dependent and should be recorded in PR notes.
+```bash
+npm run bench:large
+```
 
-CI runs a smaller `npm run bench:smoke` subset with 250 generated lines and 25 appended lines. That check is intentionally loose enough to catch broken cache/append behavior without turning CI into a hardware benchmark.
+It is calibrated to catch obvious large-session regressions without treating GitHub Actions as a precise hardware benchmark. Keep thresholds several times higher than the audit baseline unless CI evidence shows the runner has stable headroom.
+
+## CI And Release Checklist
+
+CI runs two generated-session benchmark checks on every PR:
+
+- `npm run bench:smoke`: 250 generated lines, 25 appended lines, fast parser/status/append thresholds.
+- `npm run bench:large`: 10k generated lines, 100 appended lines, intentionally loose parser/status/append/diff/export/sanitize thresholds.
+
+Do not run the 100k generated-session benchmark in PR CI by default. Before releases that touch parser, export, sanitize, diff, or large-session rendering paths, run the 100k benchmark manually and paste the measured full parse, append parse, warm diff, export, and sanitization times into the release PR notes. See `docs/release.md` for the release checklist command.

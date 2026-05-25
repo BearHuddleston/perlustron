@@ -53,6 +53,22 @@ git push origin v0.1.0
 
 The release workflow builds platform archives for Windows, Linux, macOS x86_64, and macOS arm64 where GitHub runners support them.
 
+## Large-Session Benchmark Checklist
+
+Run the PR-sized guardrail before every release prep branch:
+
+```bash
+npm run bench:large
+```
+
+For releases that touch parser, export, sanitize, diff, or large-session rendering paths, also run the 100k generated-session benchmark manually on a known local machine and record the timings in the release PR notes:
+
+```bash
+cargo run --release -- bench --generate 100000 --append-lines 1000
+```
+
+At minimum, compare and record full parse, append parse, warm diff, HTML export, and sanitization times against `docs/benchmarks.md`. The 100k run is intentionally manual because it is hardware-sensitive and too slow/noisy for normal PR CI.
+
 ## Artifact Expectations
 
 Release assets should include each archive plus its matching `.sha256` file. The release body should not claim features that are not present in the selected tag. Extracted archives should include:

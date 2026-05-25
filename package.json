@@ -8,6 +8,7 @@
     "dev": "npm run build:frontend && cargo run -- --demo --no-open --dev-assets",
     "dev:frontend": "node scripts/build-frontend.mjs --watch",
     "bench:smoke": "cargo run --quiet -- bench --generate 250 --append-lines 25 --max-full-ms 1000 --max-status-ms 1000 --max-append-ms 1000",
+    "bench:large": "cargo run --quiet -- bench --generate 10000 --append-lines 100 --max-full-ms 5000 --max-status-ms 1000 --max-append-ms 3000 --max-diff-ms 5000 --max-export-ms 10000 --max-sanitize-ms 12000",
     "smoke:browser": "npm run build:frontend && node scripts/smoke-browser.mjs",
     "offline:check": "node scripts/check-offline-assets.mjs",
     "ui:check": "node scripts/check-event-context-panel.mjs && node scripts/check-format-utils.mjs && node scripts/check-summary-mode-shell.mjs && node scripts/check-copy-safe-share.mjs && node scripts/check-live-camera-follow.mjs",
