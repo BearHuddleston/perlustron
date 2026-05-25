@@ -8,7 +8,7 @@ The README screenshot at `docs/assets/perlustron-demo.png` is generated from the
 - `codex-sanitized.jsonl`: Codex-style session metadata, prompt, shell call, tool result, patch/file activity, token telemetry, assistant message, compaction, embedded image metadata, unknown event, and malformed line.
 - `claude-sanitized.jsonl`: Claude-style prompt, assistant tool use, tool result, assistant response, summary, and unknown event.
 - `codex-edge-cases.jsonl`: Codex-style subagent notification, `spawn_agent` result, tool search, web search, MCP result, token telemetry, and compaction coverage.
-- `codex-loop-error.jsonl`: Codex-style repeated failed shell command, missing tool result, permission friction, high context telemetry, file edit after first error, and compaction coverage.
+- `codex-loop-error.jsonl`: Codex-style repeated failed shell command, missing tool result, permission friction, high context telemetry, file edit after first error, and compaction coverage. This is the sanitized source for the [narrative forensic demo](forensic-demo.md).
 - `codex-approval-denied.jsonl`: approval/sandbox denial fixture.
 - `codex-missing-tool-result.jsonl`: unpaired tool call fixture.
 - `codex-subagent-tree.jsonl`: spawn/subagent notification fixture.

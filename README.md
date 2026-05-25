@@ -29,6 +29,24 @@ perlustron fixture-report path/to/session.jsonl --redacted -o fixture-report.md
 
 The screenshot above was generated from the bundled sanitized Codex demo in privacy mode on the Summary-first workflow, including inspect-first evidence actions and raw-log shareability cues. Do not use private logs for screenshots or marketing assets.
 
+## Example Forensic Workflow
+
+Codex got stuck after a failing shell command in the sanitized `fixtures/codex-loop-error.jsonl` case. Perlustron's Summary-first workflow turns that log into a fast answer:
+
+1. **What happened:** first failure at line 6, two retries after the error, one repeated command pattern, and one file edit after the failure.
+2. **Where to inspect:** Summary links into Timeline and Transcript evidence for the failing result, repeated retry, missing-result command, patch, and compaction context.
+3. **Safe to share:** Copy Share Summary, Copy Safe Reference, and redacted exports keep the structure while avoiding raw prompts, private paths, tokens, image payloads, and tool-output secrets.
+
+Try the case locally:
+
+```bash
+perlustron fixtures/codex-loop-error.jsonl
+perlustron insights fixtures/codex-loop-error.jsonl
+perlustron export fixtures/codex-loop-error.jsonl --format html --redacted -o loop-demo.html
+```
+
+See the full [narrative forensic demo](docs/forensic-demo.md). The fixture is synthetic/sanitized; do not use private logs for demo assets.
+
 ## Install
 
 Download the latest release archive for your platform, verify its checksum, extract it, then run `perlustron --demo`.
@@ -165,6 +183,7 @@ perlustron bench --generate 10000
 - [Security](SECURITY.md)
 - [Supported formats](docs/supported-formats.md)
 - [Privacy and redaction](docs/privacy-and-redaction.md)
+- [Narrative forensic demo](docs/forensic-demo.md)
 - [Session diff](docs/session-diff.md)
 - [Insights](docs/insights.md)
 - [Schema drift](docs/schema-drift.md)
