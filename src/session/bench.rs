@@ -5,6 +5,9 @@ struct BenchThresholds {
     max_full_parse_ms: Option<f64>,
     max_status_refresh_ms: Option<f64>,
     max_append_parse_ms: Option<f64>,
+    max_diff_ms: Option<f64>,
+    max_export_ms: Option<f64>,
+    max_sanitization_ms: Option<f64>,
 }
 
 struct BenchmarkReport {
@@ -391,6 +394,24 @@ fn collect_threshold_failures(report: &mut BenchmarkReport, thresholds: BenchThr
             thresholds.max_append_parse_ms,
         );
     }
+    push_threshold_failure(
+        &mut report.threshold_failures,
+        "warm diff",
+        report.diff_time,
+        thresholds.max_diff_ms,
+    );
+    push_threshold_failure(
+        &mut report.threshold_failures,
+        "export",
+        report.export_time,
+        thresholds.max_export_ms,
+    );
+    push_threshold_failure(
+        &mut report.threshold_failures,
+        "sanitization",
+        report.sanitization_time,
+        thresholds.max_sanitization_ms,
+    );
 }
 
 fn push_threshold_failure(
