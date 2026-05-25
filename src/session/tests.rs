@@ -2541,6 +2541,20 @@ fn normalized_export_parents_calls_to_assistant_message() {
 }
 
 #[test]
+fn tokenless_non_loopback_warning_only_triggers_for_exposed_unauthenticated_api() {
+    assert!(tokenless_non_loopback_warning(IpAddr::V4(Ipv4Addr::LOCALHOST), false).is_none());
+    assert!(tokenless_non_loopback_warning("::1".parse().unwrap(), false).is_none());
+    assert!(tokenless_non_loopback_warning(IpAddr::V4(Ipv4Addr::UNSPECIFIED), true).is_none());
+
+    let warning = tokenless_non_loopback_warning(IpAddr::V4(Ipv4Addr::UNSPECIFIED), false)
+        .expect("wildcard tokenless API should warn");
+    assert!(warning.contains("SECURITY WARNING"));
+    assert!(warning.contains("tokenless API"));
+    assert!(warning.contains("--require-api-token"));
+    assert!(warning.contains("session logs"));
+}
+
+#[test]
 fn cli_parses_demo_and_export_commands() {
     let serve = parse_cli(vec![
         "--demo".to_owned(),

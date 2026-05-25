@@ -1103,12 +1103,12 @@ Bench threshold options:
 Serve options:
   --demo [codex|claude]       Run with a bundled sanitized demo fixture
   --source codex|claude      Select source parser or discovery root
-  --host 127.0.0.1           Bind host (default 127.0.0.1)
+  --host 127.0.0.1           Bind host (default 127.0.0.1; non-loopback tokenless binds warn)
   --port 8787                Bind port (default 8787 or PORT env var)
   --open                     Open browser after server starts
   --no-open                  Do not open browser
   --privacy-mode             Serve strict-redacted graph data and disable images
-  --require-api-token        Require a per-run token on local API routes
+  --require-api-token        Require a per-run token on local API routes (recommended for non-loopback)
   --dev-assets               Debug only: serve static assets from disk without rebuilding Rust
   --help                     Show this help
   --version                  Show version and parser schema

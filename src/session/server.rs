@@ -74,6 +74,10 @@ async fn run_server(options: ServerOptions) -> Result<()> {
         .with_context(|| format!("failed to bind http://{addr}"))?;
 
     println!("Serving Perlustron at {url}");
+    println!("API mode: {}", api_auth_mode_label(options.require_api_token));
+    if let Some(warning) = tokenless_non_loopback_warning(options.host, options.require_api_token) {
+        eprintln!("{warning}");
+    }
     if options.privacy_mode {
         println!("Privacy mode: strict redaction is enabled and embedded image routes are disabled.");
     }
@@ -94,6 +98,24 @@ async fn run_server(options: ServerOptions) -> Result<()> {
     }
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn api_auth_mode_label(require_api_token: bool) -> &'static str {
+    if require_api_token {
+        "token-protected; a per-run local session token is required on API routes"
+    } else {
+        "tokenless; API routes do not require a token"
+    }
+}
+
+fn tokenless_non_loopback_warning(host: IpAddr, require_api_token: bool) -> Option<String> {
+    if require_api_token || host.is_loopback() {
+        return None;
+    }
+
+    Some(format!(
+        "SECURITY WARNING: Perlustron is serving a tokenless API on non-loopback host {host}. Raw session logs can contain prompts, code, paths, command output, images, tool results, tokens, cookies, environment variables, and credentials. Use --require-api-token or bind --host 127.0.0.1 unless this is an isolated trusted network."
+    ))
 }
 
 async fn sessions_handler(
