@@ -6266,6 +6266,7 @@ function renderSummaryModePanel(): void {
   const shell = document.createElement("div");
   shell.className = "summary-shell";
 
+  const verdict = renderForensicVerdictCard(current, rawShareStatus);
   const hero = modeCard("Session Summary");
   hero.classList.add("summary-hero");
   hero.append(
@@ -6353,13 +6354,137 @@ function renderSummaryModePanel(): void {
       ["Secondary rate limit", formatOptionalPercent(telemetry.secondaryRateLimitPercent)],
     ])
   );
-  shell.append(hero, triage, grid);
+  shell.append(verdict, hero, triage, grid);
 
   if (health.warnings.length || current.insights.warnings.length) {
     shell.append(modeCard("Warnings", [...health.warnings, ...current.insights.warnings].slice(0, 10)));
   }
 
   modePanelContent.replaceChildren(shell);
+}
+
+function renderForensicVerdictCard(current: SessionGraph, rawShareStatus: string): HTMLElement {
+  const priorityFinding = current.insights.inspectionQueue[0] ?? null;
+  const confidenceFinding = highestConfidenceInspectionItem(current.insights.inspectionQueue) ?? priorityFinding;
+  const card = modeCard("Forensic Verdict");
+  card.classList.add("summary-verdict");
+
+  const verdictGrid = document.createElement("div");
+  verdictGrid.className = "summary-verdict-grid";
+  verdictGrid.append(
+    summaryVerdictField("Outcome", forensicVerdictOutcome(current)),
+    summaryVerdictField("First critical event", forensicVerdictFirstCriticalEvent(current, priorityFinding)),
+    summaryVerdictField("Highest-confidence finding", forensicVerdictFinding(confidenceFinding)),
+    summaryVerdictField("Safe-share state", forensicVerdictSafeShareState(current, rawShareStatus)),
+    summaryVerdictField("Inspect next", forensicVerdictInspectNext(priorityFinding))
+  );
+
+  const action = priorityFinding
+    ? modeButton("Inspect Highest-Priority Finding", () => openInsightEvidence(priorityFinding, "raw"))
+    : modeButton("Review Parser Health", () => selectAppMode("health"));
+  action.classList.add("summary-primary-cta");
+  const actions = document.createElement("div");
+  actions.className = "summary-verdict-actions";
+  actions.append(action);
+
+  card.append(verdictGrid, actions);
+  return card;
+}
+
+function summaryVerdictField(label: string, value: string): HTMLElement {
+  const field = document.createElement("div");
+  field.className = "summary-verdict-field";
+  const term = document.createElement("strong");
+  term.textContent = label;
+  const detail = document.createElement("span");
+  detail.textContent = value;
+  field.append(term, detail);
+  return field;
+}
+
+function forensicVerdictOutcome(current: SessionGraph): string {
+  const { insights, parserHealth } = current;
+  if (insights.failureChain) {
+    const outcome = insights.failureChain.finalOutcome || insights.failureChain.firstLoggedError.title;
+    return `Failed - ${compactInsightText(outcome, 132)}`;
+  }
+  const repeatedToolPattern = insights.repeatedPatterns.find((pattern) => pattern.patternType !== "file_activity");
+  if (repeatedToolPattern) {
+    return `Looped - ${formatNumber(repeatedToolPattern.count)} repeated ${repeatedToolPattern.key} records`;
+  }
+  if (insights.contextPressure.highContextMarkers.length || insights.contextPressure.compactionMarkers.length) {
+    return `Drifted - ${insights.contextPressure.status || "context pressure"}`;
+  }
+  if (parserHealth.unknownEventCount || parserHealth.malformedLineCount) {
+    return `Unknown - ${formatNumber(parserHealth.unknownEventCount)} unknown / ${formatNumber(parserHealth.malformedLineCount)} malformed parser records`;
+  }
+  return current.isLive ? "Live - session is still receiving events" : "Completed - no failure chain detected";
+}
+
+function forensicVerdictFirstCriticalEvent(current: SessionGraph, priorityFinding: InspectionQueueItem | null): string {
+  const firstError = current.insights.failureChain?.firstLoggedError;
+  if (firstError) {
+    return `${firstError.title} at line ${formatNumber(firstError.lineNumber)}`;
+  }
+  if (priorityFinding) {
+    const line = firstInsightLine(priorityFinding);
+    return line ? `${priorityFinding.title} at line ${formatNumber(line)}` : `${priorityFinding.title} (no event line logged)`;
+  }
+  const firstWarning = current.insights.warnings[0] || current.parserHealth.warnings[0];
+  return firstWarning ? compactInsightText(firstWarning, 132) : "No critical or suspicious event detected";
+}
+
+function highestConfidenceInspectionItem(items: InspectionQueueItem[]): InspectionQueueItem | null {
+  return items.reduce<InspectionQueueItem | null>((best, item) => {
+    if (!best) {
+      return item;
+    }
+    const itemRank = insightConfidenceRank(item.confidence);
+    const bestRank = insightConfidenceRank(best.confidence);
+    if (itemRank < bestRank) {
+      return item;
+    }
+    if (itemRank === bestRank && insightSeverityRank(item.severity) < insightSeverityRank(best.severity)) {
+      return item;
+    }
+    return best;
+  }, null);
+}
+
+function insightConfidenceRank(confidence: string): number {
+  switch (confidence.toLowerCase()) {
+    case "direct":
+    case "high":
+      return 0;
+    case "strong heuristic":
+    case "medium":
+      return 1;
+    case "weak heuristic":
+    case "low":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function forensicVerdictFinding(finding: InspectionQueueItem | null): string {
+  if (!finding) {
+    return "No queued high-confidence finding; use parser health for audit context.";
+  }
+  const summary = compactInsightText(finding.redactionSafeSummary || finding.summary, 132);
+  return `${finding.title} (${finding.confidence} confidence, ${finding.severity} severity) - ${summary}`;
+}
+
+function forensicVerdictSafeShareState(current: SessionGraph, rawShareStatus: string): string {
+  const tokenStatus = current.privacySummary.apiTokenRequired ? "API token required; token value hidden" : "No API token requirement logged";
+  return `${rawShareStatus}; ${tokenStatus}`;
+}
+
+function forensicVerdictInspectNext(priorityFinding: InspectionQueueItem | null): string {
+  if (!priorityFinding) {
+    return "No queued finding; review Parser Health only if the audit needs raw parser details.";
+  }
+  return `${priorityFinding.title} - ${insightPlainReason(priorityFinding)}`;
 }
 
 function summaryFact(title: string, facts: [string, string][]): HTMLElement {
