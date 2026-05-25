@@ -327,18 +327,19 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   const expectedQueuedCount =
     (await fetchJson(`${server.baseUrl}/api/session?token=${encodeURIComponent(server.token)}`))?.insights?.inspectionQueue?.length ?? 0;
   const summaryInsights = await page.evaluate((queued) => {
+    const legacyLabels = new Set(["Raw Evidence", "Timeline Evidence", "Transcript Evidence"]);
+    const allActionButtons = Array.from(document.querySelectorAll(".summary-insights .mode-action-button"));
+    const triggers = Array.from(document.querySelectorAll(".summary-insights .summary-evidence-trigger"));
     return {
       rows: document.querySelectorAll(".summary-insights .mode-linked-row").length,
       queued,
-      hasRawEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
-        (button) => button.textContent?.trim() === "Raw Evidence"
-      ),
-      hasTimelineEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
-        (button) => button.textContent?.trim() === "Timeline Evidence"
-      ),
-      hasTranscriptEvidence: Array.from(document.querySelectorAll(".summary-insights .mode-action-button")).some(
-        (button) => button.textContent?.trim() === "Transcript Evidence"
-      ),
+      viewEvidenceButtons: triggers.filter((button) => button.textContent?.trim() === "View Evidence").length,
+      legacyEvidenceButtons: allActionButtons.filter((button) => legacyLabels.has(button.textContent?.trim() || "")).length,
+      hiddenDrawers: document.querySelectorAll(".summary-insights .summary-evidence-drawer[hidden]").length,
+      drawerRegions: document.querySelectorAll('.summary-insights .summary-evidence-drawer[role="region"]').length,
+      triggersWithControls: triggers.filter(
+        (button) => button.getAttribute("aria-controls") && button.getAttribute("aria-expanded") === "false"
+      ).length,
     };
   }, expectedQueuedCount);
   const expectedVisibleRows = Math.min(summaryInsights.queued, 5);
@@ -346,10 +347,40 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
     summaryInsights.rows > 0 && summaryInsights.rows === expectedVisibleRows,
     "Summary should expose only the first five queued Insight findings"
   );
-  assert(summaryInsights.hasRawEvidence, "Summary should expose a Raw Evidence CTA");
-  assert(summaryInsights.hasTimelineEvidence, "Summary should expose a Timeline Evidence CTA");
-  assert(summaryInsights.hasTranscriptEvidence, "Summary should expose a Transcript Evidence CTA");
-  await page.locator(".summary-insights .mode-action-button", { hasText: "Raw Evidence" }).first().click();
+  assert(summaryInsights.viewEvidenceButtons === expectedVisibleRows, "Summary should expose one View Evidence CTA per queued finding");
+  assert(summaryInsights.legacyEvidenceButtons === 0, "Summary should collapse repeated Raw/Timeline/Transcript evidence CTAs");
+  assert(summaryInsights.hiddenDrawers === expectedVisibleRows, "Summary evidence drawers should start collapsed");
+  assert(summaryInsights.drawerRegions === expectedVisibleRows, "Summary evidence drawers should be screen-reader regions");
+  assert(summaryInsights.triggersWithControls === expectedVisibleRows, "Summary evidence triggers should describe collapsed drawer state");
+
+  await page.locator(".summary-insights .summary-evidence-trigger", { hasText: "View Evidence" }).first().click();
+  await page.waitForFunction(
+    () => {
+      const drawer = document.querySelector(".summary-insights .summary-evidence-drawer:not([hidden])");
+      return drawer && drawer.querySelector('.summary-evidence-tabs button') && document.activeElement === drawer;
+    },
+    null,
+    { timeout: UI_TIMEOUT_MS }
+  );
+  const drawer = await page.evaluate(() => {
+    const openDrawer = document.querySelector(".summary-insights .summary-evidence-drawer:not([hidden])");
+    const trigger = document.querySelector(".summary-insights .summary-evidence-trigger");
+    return {
+      triggerExpanded: trigger?.getAttribute("aria-expanded"),
+      triggerText: trigger?.textContent?.trim(),
+      text: openDrawer?.textContent || "",
+      surfaceLabels: Array.from(openDrawer?.querySelectorAll(".summary-evidence-tabs button") || []).map(
+        (button) => button.textContent?.trim() || ""
+      ),
+    };
+  });
+  assert(drawer.triggerExpanded === "true" && drawer.triggerText === "Hide Evidence", "View Evidence should expose expanded state");
+  assert(drawer.text.includes("Summary") && drawer.text.includes("Evidence surfaces"), "Evidence drawer should include Summary and surface sections");
+  for (const label of ["Timeline", "Transcript", "Raw JSON", "Insights"]) {
+    assert(drawer.surfaceLabels.includes(label), `Evidence drawer should expose the ${label} surface`);
+  }
+
+  await page.locator(".summary-insights .summary-evidence-drawer:not([hidden]) .mode-action-button", { hasText: "Raw JSON" }).first().click();
   await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Raw", null, {
     timeout: UI_TIMEOUT_MS,
   });
@@ -382,24 +413,28 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
       visibleUrl: window.location.href,
     };
   });
-  assert(evidence.activeMode === "raw", "Open Evidence should route to the Raw evidence surface");
-  assert(evidence.panelHidden === false, "Open Evidence should show a visible evidence panel");
-  assert(evidence.panelSummary === "Selected event", "Open Evidence should preserve the selected event in Raw mode");
-  assert(evidence.virtualRawViewport, "Open Evidence should use the virtualized Raw text viewer");
-  assert(evidence.panelJsonObject, "Open Evidence should expose parseable selected event JSON");
+  assert(evidence.activeMode === "raw", "Raw JSON should route to the Raw evidence surface");
+  assert(evidence.panelHidden === false, "Raw JSON should show a visible evidence panel");
+  assert(evidence.panelSummary === "Selected event", "Raw JSON should preserve the selected event in Raw mode");
+  assert(evidence.virtualRawViewport, "Raw JSON should use the virtualized Raw text viewer");
+  assert(evidence.panelJsonObject, "Raw JSON should expose parseable selected event JSON");
   assert(!evidence.rawJsonPreviewExists, "Removed Raw JSON preview should stay out of the DOM");
-  assert(evidence.eventPopupHidden === true, "Open Evidence should not reveal Map-only Event Context outside Map mode");
-  assert(evidence.visibleUrl.includes("mode=raw"), "Open Evidence should update the visible URL to the evidence mode");
-  assert(!evidence.visibleUrl.includes("token="), "Open Evidence should keep the visible URL token-stripped");
+  assert(evidence.eventPopupHidden === true, "Raw JSON should not reveal Map-only Event Context outside Map mode");
+  assert(evidence.visibleUrl.includes("mode=raw"), "Raw JSON should update the visible URL to the evidence mode");
+  assert(!evidence.visibleUrl.includes("token="), "Raw JSON should keep the visible URL token-stripped");
 
   for (const [label, mode, title] of [
-    ["Timeline Evidence", "timeline", "Timeline"],
-    ["Transcript Evidence", "transcript", "Transcript"],
+    ["Timeline", "timeline", "Timeline"],
+    ["Transcript", "transcript", "Transcript"],
   ]) {
     await page.goto(`${server.baseUrl}/?mode=summary&token=${encodeURIComponent(server.token)}`, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => !window.location.search.includes("token="), null, { timeout: UI_TIMEOUT_MS });
     await waitForLoadedDemo(page);
-    await page.locator(".summary-insights .mode-action-button", { hasText: label }).first().click();
+    await page.locator(".summary-insights .summary-evidence-trigger", { hasText: "View Evidence" }).first().click();
+    await page.waitForFunction(() => document.querySelector(".summary-insights .summary-evidence-drawer:not([hidden])"), null, {
+      timeout: UI_TIMEOUT_MS,
+    });
+    await page.locator(".summary-insights .summary-evidence-drawer:not([hidden]) .mode-action-button", { hasText: label }).first().click();
     await page.waitForFunction((expectedTitle) => document.querySelector("#mode-panel-title")?.textContent?.trim() === expectedTitle, title, {
       timeout: UI_TIMEOUT_MS,
     });
@@ -415,6 +450,31 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
     assert(routed.visibleUrl.includes(`mode=${mode}`), `${label} should update the visible URL to ${mode}`);
     assert(!routed.visibleUrl.includes("token="), `${label} should keep the visible URL token-stripped`);
   }
+
+  await page.goto(`${server.baseUrl}/?mode=summary&token=${encodeURIComponent(server.token)}`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !window.location.search.includes("token="), null, { timeout: UI_TIMEOUT_MS });
+  await waitForLoadedDemo(page);
+  await page.locator(".summary-insights .summary-evidence-trigger", { hasText: "View Evidence" }).first().click();
+  await page.waitForFunction(() => document.querySelector(".summary-insights .summary-evidence-drawer:not([hidden])"), null, {
+    timeout: UI_TIMEOUT_MS,
+  });
+  await page.locator(".summary-insights .summary-evidence-drawer:not([hidden]) .mode-action-button", { hasText: "Insights" }).first().click();
+  await page.waitForFunction(() => document.querySelector("#mode-panel-title")?.textContent?.trim() === "Insights", null, {
+    timeout: UI_TIMEOUT_MS,
+  });
+  const insightRoute = await page.evaluate(() => ({
+    activeMode: document.querySelector("#mode-nav button.active")?.getAttribute("data-app-mode"),
+    panelHidden: document.querySelector("#mode-panel")?.classList.contains("hidden"),
+    panelSummary: document.querySelector("#mode-panel-summary")?.textContent?.trim() || "",
+    eventPopupHidden: document.querySelector("#event-popup")?.classList.contains("hidden"),
+    visibleUrl: window.location.href,
+  }));
+  assert(insightRoute.activeMode === "insights", "Insights should route to the Insights evidence surface");
+  assert(insightRoute.panelHidden === false, "Insights should show a visible evidence panel");
+  assert(insightRoute.panelSummary.includes("Queued insight selected"), "Insights should keep the selected finding context");
+  assert(insightRoute.eventPopupHidden === true, "Insights should not reveal Map-only Event Context outside Map mode");
+  assert(insightRoute.visibleUrl.includes("mode=insights"), "Insights should update the visible URL to insights");
+  assert(!insightRoute.visibleUrl.includes("token="), "Insights should keep the visible URL token-stripped");
 }
 
 async function assertInsightsPrioritizeSignals(page, server) {
