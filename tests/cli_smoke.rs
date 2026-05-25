@@ -342,6 +342,81 @@ fn demo_server_serves_local_assets_without_api_token_by_default() {
 }
 
 #[test]
+fn demo_server_warns_for_non_loopback_tokenless_api() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("reserve local port");
+    let port = listener.local_addr().expect("local address").port();
+    drop(listener);
+
+    let mut child = Command::new(perlustron_bin())
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args([
+            "--demo",
+            "--no-open",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            &port.to_string(),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn non-loopback tokenless demo server");
+    let stdout = child.stdout.take().expect("server stdout");
+    let stderr = child.stderr.take().expect("server stderr");
+    let mut guard = ChildGuard(&mut child);
+    let (sender, receiver) = mpsc::channel();
+
+    let stdout_sender = sender.clone();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            let _ = stdout_sender.send(("stdout", line));
+        }
+    });
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines().map_while(Result::ok) {
+            let _ = sender.send(("stderr", line));
+        }
+    });
+
+    let mut saw_startup = false;
+    let mut saw_api_mode = false;
+    let mut warning = None;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        let Ok((stream, line)) = receiver.recv_timeout(remaining.min(Duration::from_millis(250)))
+        else {
+            continue;
+        };
+        if stream == "stdout" && line.contains("Serving Perlustron at http://0.0.0.0:") {
+            saw_startup = true;
+        }
+        if stream == "stdout"
+            && line.contains("API mode: tokenless; API routes do not require a token")
+        {
+            saw_api_mode = true;
+        }
+        if stream == "stderr" && line.contains("SECURITY WARNING") {
+            warning = Some(line);
+        }
+        if saw_startup && saw_api_mode && warning.is_some() {
+            break;
+        }
+    }
+
+    assert!(saw_startup, "server should print non-loopback startup URL");
+    assert!(saw_api_mode, "server should print tokenless API mode");
+    let warning = warning.expect("server should warn for non-loopback tokenless API");
+    assert!(warning.contains("tokenless API"), "{warning}");
+    assert!(warning.contains("--require-api-token"), "{warning}");
+    assert!(warning.contains("session logs"), "{warning}");
+
+    guard.kill();
+}
+
+#[test]
 fn demo_server_can_require_api_token() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("reserve local port");
     let port = listener.local_addr().expect("local address").port();
