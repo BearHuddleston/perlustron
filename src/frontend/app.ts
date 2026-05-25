@@ -15,6 +15,7 @@ import {
   recordsLabel,
 } from "./utils/format";
 import { kindColor } from "./palette";
+import { readableRedactionSegments, readableRedactionSummary, type RedactionDisplaySegment } from "./redaction_display";
 import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
 
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
@@ -5379,14 +5380,69 @@ function eventContextRenderSignature(node: SceneNode): string {
   ].join("\u001d");
 }
 
+function setReadableRedactionText(element: HTMLElement, text: string | null | undefined, options: { includeSummary?: boolean } = {}): void {
+  const value = String(text ?? "");
+  const segments = readableRedactionSegments(value);
+  const hasRedactions = segments.some((segment) => segment.kind === "redaction");
+  element.classList.toggle("redaction-readable-text", hasRedactions);
+  element.replaceChildren();
+  if (!hasRedactions) {
+    element.textContent = value;
+    return;
+  }
+  if (options.includeSummary) {
+    const summary = readableRedactionSummary(value);
+    if (summary) {
+      const summaryElement = document.createElement("div");
+      summaryElement.className = "redaction-group-summary";
+      summaryElement.setAttribute("aria-label", "Redactions: grouped readable placeholders");
+      summaryElement.textContent = summary;
+      element.append(summaryElement);
+    }
+  }
+  appendReadableRedactionSegments(element, segments);
+}
+
+function appendReadableRedactionSegments(element: HTMLElement, segments: RedactionDisplaySegment[]): void {
+  segments.forEach((segment) => {
+    if (segment.kind === "text" || !segment.category) {
+      element.append(document.createTextNode(segment.text));
+      return;
+    }
+    const chip = document.createElement("span");
+    chip.className = `redaction-chip redaction-${segment.category}`;
+    chip.textContent = segment.text;
+    chip.title = "Readable redaction placeholder; raw sensitive value is not present in this UI surface.";
+    element.append(chip);
+  });
+}
+
+function readableRedactionSummaryElement(text: string): HTMLElement | null {
+  const summary = readableRedactionSummary(text);
+  if (!summary) {
+    return null;
+  }
+  const element = document.createElement("div");
+  element.className = "redaction-group-summary";
+  element.setAttribute("aria-label", "Redactions: grouped readable placeholders");
+  element.textContent = summary;
+  return element;
+}
+
 function renderPlainEventContextBody(payload: string): void {
   streamData.classList.remove("stream-markdown");
-  streamData.textContent = payload;
+  setReadableRedactionText(streamData, payload, { includeSummary: true });
 }
 
 function renderStreamMarkdown(markdown: string): void {
   streamData.classList.add("stream-markdown");
-  streamData.replaceChildren(renderAnnotationPrompt(markdown) ?? renderMarkdownFragment(markdown));
+  const redactionSegments = readableRedactionSegments(markdown);
+  const readableMarkdown = redactionSegments.some((segment) => segment.kind === "redaction")
+    ? redactionSegments.map((segment) => segment.text).join("")
+    : markdown;
+  const summary = readableRedactionSummaryElement(markdown);
+  const content = renderAnnotationPrompt(readableMarkdown) ?? renderMarkdownFragment(readableMarkdown);
+  streamData.replaceChildren(...[summary, content].filter((node): node is HTMLElement | DocumentFragment => Boolean(node)));
 }
 
 const ANNOTATION_FIELD_LABELS = [
@@ -6397,7 +6453,7 @@ function summaryVerdictField(label: string, value: string): HTMLElement {
   const term = document.createElement("strong");
   term.textContent = label;
   const detail = document.createElement("span");
-  detail.textContent = value;
+  setReadableRedactionText(detail, value);
   field.append(term, detail);
   return field;
 }
@@ -6497,7 +6553,7 @@ function summaryFact(title: string, facts: [string, string][]): HTMLElement {
     const term = document.createElement("dt");
     term.textContent = label;
     const detail = document.createElement("dd");
-    detail.textContent = value;
+    setReadableRedactionText(detail, value);
     list.append(term, detail);
   });
   card.append(heading, list);
@@ -6533,7 +6589,7 @@ function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
     const meta = document.createElement("small");
     meta.textContent = summaryInsightMeta(item);
     const summary = document.createElement("p");
-    summary.textContent = item.redactionSafeSummary || item.summary;
+    setReadableRedactionText(summary, item.redactionSafeSummary || item.summary);
     body.append(title, meta, summary);
 
     const drawerId = `summary-evidence-drawer-${index + 1}`;
@@ -7170,9 +7226,9 @@ function renderModeRow(row: ModeEventRow): HTMLButtonElement {
   const kind = document.createElement("small");
   kind.textContent = [row.role, row.eventType, row.toolName].filter(Boolean).join(" / ");
   const title = document.createElement("strong");
-  title.textContent = row.title;
+  setReadableRedactionText(title, row.title);
   const detail = document.createElement("small");
-  detail.textContent = [row.filePath, row.detail].filter(Boolean).join(" - ");
+  setReadableRedactionText(detail, [row.filePath, row.detail].filter(Boolean).join(" - "));
   button.append(line, kind, title, detail);
   button.addEventListener("click", () => inspectModeRow(row));
   return button;
@@ -7340,7 +7396,7 @@ function renderTranscriptPanelRow(row: TranscriptPanelRow, index: number): HTMLE
   const label = document.createElement("small");
   label.textContent = `User ${row.promptIndex + 1}`;
   const title = document.createElement("strong");
-  title.textContent = row.prompt.title;
+  setReadableRedactionText(title, row.prompt.title);
   section.append(label, title);
   return section;
 }
@@ -7392,7 +7448,7 @@ function transcriptStep(entry: TranscriptEntry): HTMLElement {
   badge.textContent = entry.label;
   const content = document.createElement("div");
   const heading = document.createElement("strong");
-  heading.textContent = entry.title;
+  setReadableRedactionText(heading, entry.title);
   const paragraph = modeParagraph(entry.body);
   content.append(heading, paragraph);
   row.append(badge, content);
@@ -7714,7 +7770,7 @@ function modeCard(title: string, lines: string[] = []): HTMLElement {
     const list = document.createElement("ul");
     lines.forEach((line) => {
       const item = document.createElement("li");
-      item.textContent = line;
+      setReadableRedactionText(item, line);
       list.append(item);
     });
     card.append(list);
@@ -7724,7 +7780,7 @@ function modeCard(title: string, lines: string[] = []): HTMLElement {
 
 function modeParagraph(text: string): HTMLElement {
   const paragraph = document.createElement("p");
-  paragraph.textContent = text;
+  setReadableRedactionText(paragraph, text);
   return paragraph;
 }
 
@@ -7991,11 +8047,11 @@ function renderInspectionQueue(insights: TraceInsights, items = insightPriorityI
     const title = document.createElement("strong");
     title.textContent = `${index + 1}. ${item.count > 1 ? `${item.title} (${formatNumber(item.count)})` : item.title}`;
     const detail = document.createElement("small");
-    detail.textContent = `Evidence: ${item.summary} - ${item.confidence} - ${item.directness}`;
+    setReadableRedactionText(detail, `Evidence: ${item.redactionSafeSummary || item.summary} - ${item.confidence} - ${item.directness}`);
     const why = document.createElement("p");
     why.textContent = `Why it matters: ${insightPlainReason(item)}`;
     const detected = document.createElement("p");
-    detected.textContent = `How detected: ${item.explanation}`;
+    setReadableRedactionText(detected, `How detected: ${item.explanation}`);
     body.append(title, why, detail, detected);
     const actions = document.createElement("div");
     actions.className = "mode-row-actions";
@@ -8039,7 +8095,7 @@ function renderFileChurnDetails(insights: TraceInsights, patterns = insightFileC
     const list = document.createElement("ul");
     lines.forEach((line) => {
       const item = document.createElement("li");
-      item.textContent = line;
+      setReadableRedactionText(item, line);
       list.append(item);
     });
     details.append(list);
@@ -8060,7 +8116,7 @@ function renderDivergenceList(diff: TraceDiff): HTMLElement {
     const detail = document.createElement("small");
     detail.textContent = `${cluster.confidence} - A line ${cluster.leftLine ?? "n/a"} - B line ${cluster.rightLine ?? "n/a"}`;
     const summary = document.createElement("p");
-    summary.textContent = cluster.summary;
+    setReadableRedactionText(summary, cluster.summary);
     body.append(title, detail, summary);
     const actions = document.createElement("div");
     actions.className = "mode-row-actions";
@@ -8101,9 +8157,9 @@ function renderUnknownSamples(health: ParserHealth): HTMLElement {
     row.className = "mode-linked-row";
     const body = document.createElement("div");
     const title = document.createElement("strong");
-    title.textContent = sample.title;
+    setReadableRedactionText(title, sample.title);
     const detail = document.createElement("small");
-    detail.textContent = `line ${sample.lineNumber} - ${sample.detail}`;
+    setReadableRedactionText(detail, `line ${sample.lineNumber} - ${sample.detail}`);
     body.append(title, detail);
     const actions = document.createElement("div");
     actions.className = "mode-row-actions";
