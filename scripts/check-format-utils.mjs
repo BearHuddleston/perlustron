@@ -23,6 +23,7 @@ const expectedExports = [
   "formatOptionalPercent",
   "formatSessionModified",
   "recordsLabel",
+  "shortPath",
 ];
 
 expect(existsSync(formatPath), "Format utilities should live in src/frontend/utils/format.ts.");
@@ -70,11 +71,13 @@ try {
   expectEqual(format.formatBytes(1537), "2 KB", "formatBytes should round KiB labels up");
   expectEqual(format.formatBytes(1024 * 1024), "1.0 MB", "formatBytes should keep one-decimal MiB labels");
   expectEqual(format.recordsLabel(12), "12 JSONL records", "recordsLabel should omit pending bytes when none are pending");
-  expectEqual(
-    format.recordsLabel(12, 1537),
+  expectEqual(format.recordsLabel(12, 1537),
     "12 JSONL records + 2 KB pending",
     "recordsLabel should include formatted pending bytes"
   );
+  expectEqual(format.shortPath("/home/arkouda/workspaces/perlustron/session.jsonl"), "arkouda/workspaces/perlustron/session.jsonl", "shortPath should preserve the app.ts four-segment shortening behavior");
+  expectEqual(format.shortPath("relative/path"), "relative/path", "shortPath should leave short paths unchanged");
+  expectEqual(format.shortPath(null), "", "shortPath should hide missing paths");
   expectEqual(format.formatCountDelta({ left: 2, right: 5, delta: 3 }), "2 -> 5 (+3)", "formatCountDelta should prefix positive deltas");
   expectEqual(format.formatCountDelta({ left: 5, right: 3, delta: -2 }), "5 -> 3 (-2)", "formatCountDelta should preserve negative deltas");
   expectEqual(format.formatCountDelta({ left: 5, right: 5, delta: 0 }), "5 -> 5 (0)", "formatCountDelta should keep zero deltas unsigned");

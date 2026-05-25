@@ -7,6 +7,8 @@ import { mapColorVariableKeys, paletteCssBlock, readFrontendPalette } from "./sy
 
 const html = readFileSync("static/index.html", "utf8");
 const app = readFileSync("src/frontend/app.ts", "utf8");
+const summaryMode = readFileSync("src/frontend/modes/summary.ts", "utf8");
+const summarySurface = `${app}\n${summaryMode}`;
 const styles = readFileSync("static/styles.css", "utf8");
 const frontendPalette = await readFrontendPalette();
 
@@ -126,20 +128,20 @@ expect(app.includes("function appModeMaturity"), "Frontend should resolve beta, 
 expect(app.includes("function syncModePanelStatus"), "Frontend should sync the mode-panel maturity label.");
 expect(app.includes("button.dataset.maturity = status.maturity"), "Frontend should sync nav maturity keys from the typed map.");
 expect(app.includes("function renderSummaryModePanel"), "Summary mode should have a dedicated renderer.");
-expect(app.includes("graph.privacySummary"), "Summary renderer should display backend privacySummary facts.");
-expect(app.includes("graph.shareabilitySummary"), "Summary renderer should display backend shareabilitySummary facts.");
-expect(app.includes("rawLogsSafeToShare"), "Summary renderer should expose raw log shareability status.");
-expect(app.includes("apiTokenRequired"), "Summary renderer should expose only token requirement status, not token contents.");
-expect(app.includes('triage.className = "summary-triage"'), "Summary renderer should include the triage section row.");
-expect(app.includes('modeButton("Open Timeline"') && app.includes('modeButton("Open Export"'), "Summary triage sections should route to primary inspection and export flows.");
-expect(app.includes("function renderSummaryInsightQueue"), "Summary should render a dedicated top-insights queue.");
-expect(app.includes("const SUMMARY_INSPECTION_QUEUE_LIMIT = 5;"), "Summary should cap inspect-first findings at five.");
-expect(app.includes("insights.inspectionQueue.slice(0, SUMMARY_INSPECTION_QUEUE_LIMIT)"), "Summary Insights should render only the first capped inspection findings.");
-expect(app.includes("summary-insights"), "Summary top-insights queue should have stable CSS hooks.");
-expect(app.includes('modeButton("Timeline Evidence"') && app.includes('modeButton("Transcript Evidence"') && app.includes('modeButton("Raw Evidence"'), "Summary insights should expose Timeline, Transcript, and Raw evidence routing actions.");
-expect(app.includes("function openInsightEvidence"), "Summary evidence actions should route through an explicit insight evidence helper.");
-expect(app.includes("No event line is logged for this insight"), "Insight evidence routing should show a deterministic no-line fallback instead of silently failing.");
-expect(app.includes("showEvidenceFallback"), "Evidence fallbacks should update the Raw mode panel directly.");
+expect(summarySurface.includes("privacySummary"), "Summary renderer should display backend privacySummary facts.");
+expect(summarySurface.includes("shareabilitySummary"), "Summary renderer should display backend shareabilitySummary facts.");
+expect(summarySurface.includes("rawLogsSafeToShare"), "Summary renderer should expose raw log shareability status.");
+expect(summarySurface.includes("apiTokenRequired"), "Summary renderer should expose only token requirement status, not token contents.");
+expect(summarySurface.includes('triage.className = "summary-triage"'), "Summary renderer should include the triage section row.");
+expect(summarySurface.includes('modeButton("Open Timeline"') && summarySurface.includes('modeButton("Open Export"'), "Summary triage sections should route to primary inspection and export flows.");
+expect(summarySurface.includes("function renderSummaryInsightQueue"), "Summary should render a dedicated top-insights queue.");
+expect(summarySurface.includes("const SUMMARY_INSPECTION_QUEUE_LIMIT = 5;"), "Summary should cap inspect-first findings at five.");
+expect(summarySurface.includes("insights.inspectionQueue.slice(0, SUMMARY_INSPECTION_QUEUE_LIMIT)"), "Summary Insights should render only the first capped inspection findings.");
+expect(summarySurface.includes("summary-insights"), "Summary top-insights queue should have stable CSS hooks.");
+expect(summarySurface.includes('modeButton("Timeline Evidence"') && summarySurface.includes('modeButton("Transcript Evidence"') && summarySurface.includes('modeButton("Raw Evidence"'), "Summary insights should expose Timeline, Transcript, and Raw evidence routing actions.");
+expect(summarySurface.includes("function openInsightEvidence"), "Summary evidence actions should route through an explicit insight evidence helper.");
+expect(summarySurface.includes("No event line is logged for this insight"), "Insight evidence routing should show a deterministic no-line fallback instead of silently failing.");
+expect(summarySurface.includes("showEvidenceFallback"), "Evidence fallbacks should update the Raw mode panel directly.");
 expect(app.includes("const INSIGHTS_PRIORITY_SIGNAL_LIMIT = 10;"), "Insights should cap primary priority signals.");
 expect(app.includes("function insightPriorityItems"), "Insights should derive a focused priority signal list.");
 expect(app.includes("function insightPriorityGroup"), "Insights should group repeated priority rows before rendering.");
@@ -154,7 +156,8 @@ expect(app.includes('modeCard("Repeated Tool Patterns"'), "Insights should separ
 const focusEventByLineBlock = app.match(/function focusEventByLine[\s\S]*?\n}\n\nfunction parserHealthSummaryText/)?.[0] ?? "";
 expect(focusEventByLineBlock.length > 0, "focusEventByLine should remain discoverable for static evidence-routing checks.");
 expect(!focusEventByLineBlock.includes("openSyntheticStream"), "Evidence routing fallbacks must not reopen the floating Event Context panel outside Map mode.");
-expect(!app.includes("localSessionToken") || !/renderSummaryModePanel[\s\S]*localSessionToken/.test(app), "Summary renderer must not expose the local API token.");
+const renderSummaryModePanelBlock = app.match(/function renderSummaryModePanel[\s\S]*?\n}\n\nfunction cleanupModePanelRender/)?.[0] ?? "";
+expect(!summaryMode.includes("localSessionToken") && !renderSummaryModePanelBlock.includes("localSessionToken"), "Summary renderer must not expose the local API token.");
 expect(app.includes('if (nextMode === "summary")'), "Selecting Summary should have an explicit chrome branch.");
 expect(app.includes('return activeAppMode === "map"'), "Event Context should remain Map-only after Summary is added.");
 
