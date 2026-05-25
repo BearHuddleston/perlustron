@@ -6395,7 +6395,7 @@ function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
   const intro = modeParagraph(
     totalItems > items.length
       ? `Showing the first ${formatNumber(items.length)} of ${formatNumber(totalItems)} queued findings for inspect-first review.`
-      : "Top queued findings are ready for inspect-first review; each evidence action routes to an existing panel and falls back clearly when no event line is logged."
+      : "Top queued findings are ready for inspect-first review; each row exposes one evidence drawer that keeps Timeline, Transcript, Raw JSON, and Insights reachable."
   );
   const list = document.createElement("div");
   list.className = "mode-linked-list";
@@ -6411,13 +6411,22 @@ function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
     summary.textContent = item.redactionSafeSummary || item.summary;
     body.append(title, meta, summary);
 
-    const actions = summaryInsightActionRow([
-      modeButton("Open Insights", () => openInsightDetails(item)),
-      modeButton("Timeline Evidence", () => openInsightEvidence(item, "timeline")),
-      modeButton("Transcript Evidence", () => openInsightEvidence(item, "transcript")),
-      modeButton("Raw Evidence", () => openInsightEvidence(item, "raw")),
-    ]);
-    row.append(body, actions);
+    const drawerId = `summary-evidence-drawer-${index + 1}`;
+    const triggerId = `${drawerId}-trigger`;
+    const drawer = summaryInsightEvidenceDrawer(item, drawerId, triggerId);
+    const trigger = modeButton("View Evidence", () => {
+      const expanded = drawer.hidden;
+      if (expanded) {
+        closeOtherSummaryEvidenceDrawers(list, drawer);
+      }
+      setSummaryEvidenceDrawerExpanded(trigger, drawer, expanded);
+    });
+    trigger.id = triggerId;
+    trigger.classList.add("summary-evidence-trigger");
+    trigger.setAttribute("aria-controls", drawerId);
+    trigger.setAttribute("aria-expanded", "false");
+    const actions = summaryInsightActionRow([trigger]);
+    row.append(body, actions, drawer);
     list.append(row);
   });
   card.append(intro, list);
@@ -6429,6 +6438,91 @@ function summaryInsightActionRow(buttons: HTMLButtonElement[]): HTMLElement {
   actions.className = "mode-row-actions";
   actions.append(...buttons);
   return actions;
+}
+
+function summaryInsightEvidenceDrawer(item: InspectionQueueItem, drawerId: string, triggerId: string): HTMLElement {
+  const drawer = document.createElement("section");
+  drawer.id = drawerId;
+  drawer.className = "summary-evidence-drawer";
+  drawer.hidden = true;
+  drawer.tabIndex = -1;
+  drawer.dataset.triggerId = triggerId;
+  drawer.setAttribute("role", "region");
+  drawer.setAttribute("aria-labelledby", `${drawerId}-title`);
+
+  const heading = document.createElement("h4");
+  heading.id = `${drawerId}-title`;
+  heading.textContent = `Evidence drawer: ${item.title}`;
+  const helper = modeParagraph("Start with the summary here, then open the focused evidence surface without losing this finding as context.");
+
+  const summarySection = document.createElement("section");
+  summarySection.className = "summary-evidence-section";
+  summarySection.setAttribute("aria-labelledby", `${drawerId}-summary`);
+  const summaryHeading = document.createElement("h5");
+  summaryHeading.id = `${drawerId}-summary`;
+  summaryHeading.textContent = "Summary";
+  const summaryText = modeParagraph(item.redactionSafeSummary || item.summary);
+  const facts = document.createElement("dl");
+  facts.className = "summary-evidence-meta";
+  const line = firstInsightLine(item);
+  ([
+    ["Severity", item.severity],
+    ["Confidence", item.confidence],
+    ["Directness", item.directness],
+    ["Line", line ? `line ${line}` : "no event line logged"],
+    ["Events", item.eventIds.length ? `${formatNumber(item.eventIds.length)} linked` : "no linked event ids"],
+  ] as [string, string][]).forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = value;
+    facts.append(term, detail);
+  });
+  summarySection.append(summaryHeading, summaryText, facts);
+
+  const surfaceSection = document.createElement("section");
+  surfaceSection.className = "summary-evidence-section";
+  surfaceSection.setAttribute("aria-labelledby", `${drawerId}-surfaces`);
+  const surfaceHeading = document.createElement("h5");
+  surfaceHeading.id = `${drawerId}-surfaces`;
+  surfaceHeading.textContent = "Evidence surfaces";
+  const surfaceText = modeParagraph("Open Timeline or Transcript for positioned rows, Raw JSON for the selected payload, or Insights for the grouped finding view.");
+  const surfaceActions = summaryInsightActionRow([
+    modeButton("Timeline", () => openInsightEvidence(item, "timeline")),
+    modeButton("Transcript", () => openInsightEvidence(item, "transcript")),
+    modeButton("Raw JSON", () => openInsightEvidence(item, "raw")),
+    modeButton("Insights", () => openInsightDetails(item)),
+  ]);
+  surfaceActions.classList.add("summary-evidence-tabs");
+  surfaceActions.setAttribute("role", "group");
+  surfaceActions.setAttribute("aria-label", `Evidence surfaces for ${item.title}`);
+  surfaceSection.append(surfaceHeading, surfaceText, surfaceActions);
+
+  drawer.append(heading, helper, summarySection, surfaceSection);
+  return drawer;
+}
+
+function closeOtherSummaryEvidenceDrawers(list: HTMLElement, activeDrawer: HTMLElement): void {
+  list.querySelectorAll<HTMLElement>(".summary-evidence-drawer").forEach((drawer) => {
+    if (drawer === activeDrawer || drawer.hidden) {
+      return;
+    }
+    const trigger = drawer.dataset.triggerId ? document.getElementById(drawer.dataset.triggerId) : null;
+    if (trigger instanceof HTMLButtonElement) {
+      setSummaryEvidenceDrawerExpanded(trigger, drawer, false);
+    } else {
+      drawer.hidden = true;
+    }
+  });
+}
+
+function setSummaryEvidenceDrawerExpanded(trigger: HTMLButtonElement, drawer: HTMLElement, expanded: boolean): void {
+  drawer.hidden = !expanded;
+  trigger.textContent = expanded ? "Hide Evidence" : "View Evidence";
+  trigger.setAttribute("aria-expanded", String(expanded));
+  if (expanded) {
+    drawer.focus();
+  }
 }
 
 function summaryInsightMeta(item: InspectionQueueItem): string {
@@ -6460,7 +6554,7 @@ function openInsightDetails(item: InspectionQueueItem): void {
   selectAppMode("insights");
   setRawModePayload(item);
   modePanelSummary.textContent = `Queued insight selected - ${item.title}`;
-  const notice = modeEmpty("Selected insight loaded in Raw for audit; use evidence actions to jump into Timeline, Transcript, or Raw rows when line/event data is available.");
+  const notice = modeEmpty("Selected insight loaded in Raw for audit; return to Summary when you want the unified evidence drawer for Timeline, Transcript, or Raw rows.");
   notice.classList.add("mode-notice");
   modePanelContent.prepend(notice);
 }
