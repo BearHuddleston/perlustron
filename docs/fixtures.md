@@ -18,8 +18,9 @@ The README screenshot at `docs/assets/perlustron-demo.png` is generated from the
 - `claude-tool-use-loop.jsonl`: repeated Claude tool-use failure fixture.
 - `claude-compact-summary.jsonl`: Claude summary/compaction fixture.
 - `claude-image-metadata.jsonl`: Claude embedded image metadata fixture.
-- `adversarial-redaction-codex.jsonl`: synthetic Codex-style adversarial redaction fixture covering multiline secrets, URL query tokens, labeled base64-ish credentials, Windows home paths, tool-output credentials, unknown/malformed previews, and embedded image metadata. It is not an example of real credentials.
-- `adversarial-redaction-claude.jsonl`: synthetic Claude-style adversarial redaction fixture covering private URL/query tokens, image payload metadata, tool-use credentials, Windows home paths, unknown/malformed previews, and strict export non-leak coverage. It is not an example of real credentials.
+- `redaction/common-authorization-and-password.jsonl`: minimal Codex-style fixture for common authorization-header and password-assignment redaction.
+- `redaction/adversarial-codex-multiline-query-cookie-tool-bearer.jsonl`: synthetic Codex-style adversarial redaction fixture covering multiline secrets, URL query tokens, labeled base64-ish credentials, Windows home paths, tool-output credentials, unknown/malformed previews, and embedded image metadata. It is not an example of real credentials.
+- `redaction/adversarial-claude-image-path-metadata.jsonl`: synthetic Claude-style adversarial redaction fixture covering private URL/query tokens, image payload metadata, tool-use credentials, Windows home paths, unknown/malformed previews, and strict export non-leak coverage. It is not an example of real credentials.
 - `malformed-mixed-source.jsonl`: unknown and malformed mixed-source parser-health fixture.
 - `diff-run-a.jsonl` and `diff-run-b.jsonl`: paired diff fixtures with inserted telemetry noise and later file divergence.
 
@@ -57,6 +58,7 @@ perlustron status fixtures/codex-edge-cases.jsonl
 perlustron insights fixtures/codex-loop-error.jsonl
 perlustron diff fixtures/codex-sanitized.jsonl fixtures/codex-loop-error.jsonl --redacted
 perlustron status fixtures/claude-edge-cases.jsonl --source claude
-perlustron status fixtures/adversarial-redaction-codex.jsonl
-perlustron status fixtures/adversarial-redaction-claude.jsonl --source claude
+perlustron status fixtures/redaction/common-authorization-and-password.jsonl
+perlustron status fixtures/redaction/adversarial-codex-multiline-query-cookie-tool-bearer.jsonl
+perlustron status fixtures/redaction/adversarial-claude-image-path-metadata.jsonl --source claude
 ```
