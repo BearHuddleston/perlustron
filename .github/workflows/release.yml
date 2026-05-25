@@ -130,6 +130,9 @@ jobs:
           mkdir -p dist/validate
           tar -xzf "dist/${{ matrix.archive }}" -C dist/validate
           cd "dist/validate/perlustron-${{ matrix.name }}"
+          for required_path in "./${{ matrix.bin }}" README.md SECURITY.md LICENSE-MIT LICENSE-APACHE docs/release.md docs/privacy-and-redaction.md docs/assets/perlustron-demo.png; do
+            test -s "$required_path"
+          done
           ./perlustron --version
           ./perlustron --demo --no-open > server.log 2>&1 &
           server_pid=$!
@@ -168,6 +171,16 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/validate | Out-Null
           Expand-Archive -Path "dist/${{ matrix.archive }}" -DestinationPath dist/validate
           Push-Location "dist/validate/perlustron-${{ matrix.name }}"
+          $requiredPaths = @(".\\${{ matrix.bin }}", "README.md", "SECURITY.md", "LICENSE-MIT", "LICENSE-APACHE", "docs/release.md", "docs/privacy-and-redaction.md", "docs/assets/perlustron-demo.png")
+          foreach ($requiredPath in $requiredPaths) {
+            if (-not (Test-Path $requiredPath)) {
+              throw "Missing required archive content: $requiredPath"
+            }
+            $item = Get-Item $requiredPath
+            if (-not $item.PSIsContainer -and $item.Length -eq 0) {
+              throw "Required archive content is empty: $requiredPath"
+            }
+          }
           .\perlustron.exe --version
           $server = Start-Process -FilePath ".\perlustron.exe" -ArgumentList "--demo","--no-open" -NoNewWindow -PassThru -RedirectStandardOutput server.out -RedirectStandardError server.err
           try {
@@ -194,6 +207,14 @@ jobs:
             Pop-Location
           }
 
+      - name: Write release artifact manifest
+        env:
+          PERLUSTRON_RELEASE_TARGET: ${{ matrix.name }}
+          PERLUSTRON_RELEASE_BINARY: ${{ matrix.bin }}
+          PERLUSTRON_RELEASE_ARCHIVE: dist/${{ matrix.archive }}
+          PERLUSTRON_RELEASE_BUNDLE: dist/perlustron-${{ matrix.name }}
+        run: node scripts/write-release-manifest.mjs
+
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
@@ -201,6 +222,7 @@ jobs:
           path: |
             dist/${{ matrix.archive }}
             dist/${{ matrix.archive }}.sha256
+            dist/${{ matrix.archive }}.manifest.json
 
   publish:
     name: Publish GitHub Release
@@ -225,24 +247,27 @@ jobs:
 
             ## Install
             1. Download the archive for your platform.
-            2. Download the matching `.sha256` file.
-            3. Verify the checksum.
+            2. Download the matching `.sha256` file and optional `.manifest.json` file.
+            3. Verify the checksum, then inspect the manifest if you need the per-file package inventory.
             4. Extract the archive and run `perlustron --demo`.
 
             ## Artifacts
-            - `perlustron-linux-x86_64.tar.gz`
-            - `perlustron-windows-x86_64.zip`
-            - `perlustron-macos-x86_64.tar.gz`
-            - `perlustron-macos-aarch64.tar.gz`
+            - `perlustron-linux-x86_64.tar.gz` plus `.sha256` and `.manifest.json`
+            - `perlustron-windows-x86_64.zip` plus `.sha256` and `.manifest.json`
+            - `perlustron-macos-x86_64.tar.gz` plus `.sha256` and `.manifest.json`
+            - `perlustron-macos-aarch64.tar.gz` plus `.sha256` and `.manifest.json`
+
+            ## Release Integrity
+            Each manifest JSON records the target, source commit, archive SHA-256, signing/notarization status, required docs/assets, and per-file SHA-256 values for the packaged bundle. The release workflow also extracts every archive and verifies key docs/assets are present before launching the local UI smoke test.
 
             ## Security And Privacy
             Perlustron binds to `127.0.0.1` by default, bundles browser assets locally, and does not implement telemetry. API routes are tokenless by default on loopback; launch with `--require-api-token` to require a random per-run local API token. Redacted exports and scans are best-effort sharing aids and should be reviewed before forwarding.
 
             ## macOS Signing
-            macOS archives are signed and submitted for notarization only when Apple Developer signing secrets are configured for the release run. If those secrets are absent, the macOS archives are unsigned developer-preview CLI artifacts and users may need to open the binary from Terminal or remove quarantine manually.
+            macOS archives are signed and notarized only when Apple Developer signing secrets are configured for the release run. If those secrets are absent, the macOS archives are unsigned developer-preview CLI artifacts and users may need to open the binary from Terminal or remove quarantine manually.
 
             ## Test Plan
             - Built frontend assets.
             - Built release binary.
-            - Packaged checksummed platform archives with docs and security notes.
-            - Extracted each archive, launched `perlustron --demo --no-open`, and loaded the local UI plus `/app.js`.
+            - Packaged checksummed platform archives with docs, security notes, and manifest JSON files.
+            - Extracted each archive, verified required docs/assets, launched `perlustron --demo --no-open`, and loaded the local UI plus `/app.js`.
