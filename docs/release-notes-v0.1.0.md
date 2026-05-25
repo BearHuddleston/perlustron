@@ -8,6 +8,7 @@ Perlustron v0.1.0 is the active public release line for local-first Codex and Cl
 - Serve a loopback-only browser UI; API routes are tokenless by default on loopback, with optional per-run local API token auth via `--require-api-token`.
 - Provide CLI views for status, session diffs, insights, unknown event reporting, redacted exports, and fixture reporting.
 - Package release archives for Linux, Windows, macOS x86_64, and macOS arm64, each with a matching checksum file.
+- Include a concise [narrative forensic demo](forensic-demo.md) that uses the sanitized `codex-loop-error` fixture to show Summary, Timeline/Transcript evidence navigation, and Safe To Share workflow.
 
 ## Security And Privacy
 
