@@ -310,7 +310,8 @@ pub(super) fn parse_bench_command(args: &[String]) -> Result<CliAction> {
             }
             "--max-export-ms" => {
                 index += 1;
-                thresholds.max_export_ms = Some(parse_millis_arg(args.get(index), "--max-export-ms")?);
+                thresholds.max_export_ms =
+                    Some(parse_millis_arg(args.get(index), "--max-export-ms")?);
             }
             arg if arg.starts_with("--max-export-ms=") => {
                 thresholds.max_export_ms = Some(parse_millis_value(

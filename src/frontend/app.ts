@@ -13,10 +13,23 @@ import {
   formatOptionalPercent,
   formatSessionModified,
   recordsLabel,
+  shortPath,
 } from "./utils/format";
 import { kindColor } from "./palette";
 import { readableRedactionSegments, readableRedactionSummary, type RedactionDisplaySegment } from "./redaction_display";
 import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
+import {
+  eventContextHeaderTitle,
+  eventContextKindLabel,
+  eventContextPositionLabel,
+  eventContextStreamTitle,
+  formatEventContextTimestamp,
+  formatEventContextTitle,
+  isNestedSubagentEventName,
+  subagentEventLabel,
+} from "./evidence/event_context";
+import { focusEvidenceByLine, showEvidenceFallbackPanel } from "./evidence/evidence_drawer";
+import { renderSummaryModePanel as renderSummaryModePanelView } from "./modes/summary";
 
 const FILE_CHANGE_TYPES = ["add", "update", "delete", "move"] as const;
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -69,7 +82,6 @@ const RAW_TEXT_FULL_RENDER_LINE_LIMIT = 3_000;
 const RAW_TEXT_OVERSCAN_LINES = 80;
 const VIRTUAL_LIST_OVERSCAN_PX = 900;
 const VIRTUAL_LIST_WIDTH_FALLBACK = 840;
-const SUMMARY_INSPECTION_QUEUE_LIMIT = 5;
 const INSIGHTS_PRIORITY_SIGNAL_LIMIT = 10;
 const INSIGHTS_FILE_CHURN_LIMIT = 12;
 const INSIGHTS_CARD_ITEM_LIMIT = 12;
@@ -929,100 +941,15 @@ function timestampForNode(node: SceneNode): string {
   return node.source.timestamp || "Live context";
 }
 
-function formatEventContextTimestamp(timestamp: string): string {
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.valueOf())) {
-    return timestamp;
-  }
-  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
 function setEventContextTimestamp(timestamp: string): void {
   turnTimestamp.textContent = formatEventContextTimestamp(timestamp);
   turnTimestamp.title = timestamp;
-}
-
-function formatEventContextTitle(title: string): string {
-  const headingText = title.replace(/^\s{0,3}#{1,6}\s+/, "").trim();
-  return (headingText ? headingText.replace(/:$/, "").trim() : title) || title;
 }
 
 function setEventContextTitle(title: string, label = "Selection"): void {
   streamTitleLabel.textContent = label;
   streamKind.textContent = formatEventContextTitle(title);
   streamKind.title = title;
-}
-
-function eventContextKindLabel(node: SceneNode): string {
-  if (node.type === "call") {
-    const subagentLabel = subagentEventLabel(node.source.name);
-    if (subagentLabel) {
-      return subagentLabel.toUpperCase();
-    }
-  }
-  return node.kind.replace(/[-_]+/g, " ").toUpperCase();
-}
-
-function eventContextHeaderTitle(node: SceneNode): string {
-  if (node.type === "prompt") {
-    return "";
-  }
-  return eventContextStreamTitle(node);
-}
-
-function eventContextStreamTitle(node: SceneNode): string {
-  if (node.type === "call") {
-    return subagentEventLabel(node.source.name) ?? node.title;
-  }
-  return node.title;
-}
-
-function eventContextPositionLabel(node: SceneNode): string {
-  if (node.type === "prompt") {
-    return `PROMPT ${node.promptIndex + 1}`;
-  }
-  if (node.type === "compaction") {
-    return `CHECKPOINT ${node.eventIndex}`;
-  }
-  if (node.type === "fileChange") {
-    return `FILE ${node.eventIndex}`;
-  }
-  if (node.type === "message") {
-    return `ASSISTANT ${node.eventIndex}`;
-  }
-  if (node.type === "call" && isNestedSubagentEventName(node.source.name)) {
-    return `SUBAGENT TURN ${node.eventIndex}`;
-  }
-  return `TURN ${node.eventIndex}`;
-}
-
-function subagentEventLabel(name: string): string | null {
-  if (name === "spawn_agent") {
-    return "subagent launch";
-  }
-  if (name === "subagent") {
-    return "subagent result";
-  }
-  if (name === "subagent.prompt") {
-    return "subagent prompt";
-  }
-  if (name === "subagent.message") {
-    return "subagent message";
-  }
-  if (name === "subagent.file") {
-    return "subagent file";
-  }
-  if (name === "subagent.compaction") {
-    return "subagent compaction";
-  }
-  if (name === "subagent.more") {
-    return "subagent overflow";
-  }
-  return null;
-}
-
-function isNestedSubagentEventName(name: string): boolean {
-  return name.startsWith("subagent.") && name !== "subagent";
 }
 
 function skillNamesForNode(node: SceneNode): string[] {
@@ -6302,455 +6229,24 @@ function syncModePanelStatus(appMode: AppMode): void {
 }
 
 function renderSummaryModePanel(): void {
-  if (!graph) {
-    modePanelSummary.textContent = "Waiting for session data";
-    modePanelContent.replaceChildren(modeEmpty("Waiting for session data."));
-    return;
-  }
-  const current = currentGraph();
-  const privacy = graph.privacySummary;
-  const shareability = graph.shareabilitySummary;
-  const telemetry = current.tokenTelemetry;
-  const health = current.parserHealth;
-  const sessionName = current.ui.sessionName || current.cwd?.split(/[\\/]/).filter(Boolean).at(-1) || `${sourceLabel(current.source)} session`;
-  const rawShareStatus = shareability.rawLogsSafeToShare
-    ? "Raw logs marked safe to share"
-    : "Raw logs require review before sharing";
-
-  modePanelSummary.textContent = `${rawShareStatus} - ${contextPressureSummary(telemetry)}`;
-
-  const shell = document.createElement("div");
-  shell.className = "summary-shell";
-
-  const verdict = renderForensicVerdictCard(current, rawShareStatus);
-  const hero = modeCard("Session Summary");
-  hero.classList.add("summary-hero");
-  hero.append(
-    modeParagraph(
-      `${sessionName} is a ${sourceLabel(current.source)} trace with ${formatNumber(current.ui.totalTurns)} turns, ${formatNumber(current.totals.callCount)} tool calls, and ${formatNumber(current.totals.fileChangeCount)} file changes.`
-    ),
-    modeParagraph(
-      `${rawShareStatus}. Sanitized graph/export and copy-safe references reduce exposure compared with raw logs, but they still require human judgment before sharing.`
-    )
-  );
-
-  const triage = document.createElement("div");
-  triage.className = "summary-triage";
-  const whatHappened = modeCard("What Happened", [
-    `${formatNumber(current.ui.totalTurns)} turns across ${formatNumber(current.totals.promptCount)} prompts`,
-    `${formatNumber(current.totals.completedCallCount)} completed tool calls; ${formatNumber(current.totals.fileChangeCount)} file changes`,
-    `${formatNumber(health.unknownEventCount)} unknown and ${formatNumber(health.malformedLineCount)} malformed parser records`,
-  ]);
-  const whatActions = document.createElement("div");
-  whatActions.className = "mode-actions";
-  whatActions.append(
-    modeButton("Open Timeline", () => selectAppMode("timeline")),
-    modeButton("Read Transcript", () => selectAppMode("transcript"))
-  );
-  whatHappened.append(whatActions);
-  const shareCard = modeCard("Safe To Share", [
-    rawShareStatus,
-    shareability.sanitizedGraphNote || "Sanitized graph data is intended for UI and report sharing after review.",
-    privacy.apiTokenRequired ? "Local API token is required for browser/API access; token value is not shown." : "No local API token required by this run.",
-  ]);
-  const shareActions = document.createElement("div");
-  shareActions.className = "mode-actions";
-  shareActions.append(
-    modeButton("Copy Share Summary", () => copyText(copySafeShareSummaryForGraph(current), "Copy-safe share summary copied")),
-    modeButton("Open Export", () => selectAppMode("export")),
-    modeButton("Audit Raw", () => selectAppMode("raw"))
-  );
-  shareCard.append(shareActions);
-  triage.append(whatHappened, renderSummaryInsightQueue(current.insights), shareCard);
-
-  const grid = document.createElement("div");
-  grid.className = "summary-shell-grid";
-  grid.append(
-    summaryFact("Session", [
-      ["Source", sourceLabel(current.source)],
-      ["Session", sessionName],
-      ["Model", current.metadata.model || current.metadata.modelProvider || "unknown"],
-      ["CLI", [current.metadata.originator, current.metadata.cliVersion].filter(Boolean).join(" ") || "unknown"],
-      ["Records", recordsLabel(current.lineCount, current.pendingBytes)],
-      ["Size", formatBytes(current.byteLength)],
-      ["Modified", formatSessionModified(current.lastModifiedAt) || "unknown"],
-      ["Path", shortPath(current.sessionPath) || current.sessionPath],
-    ]),
-    summaryFact("Activity", [
-      ["Prompts", formatNumber(current.totals.promptCount)],
-      ["Turns", formatNumber(current.ui.totalTurns)],
-      ["Tool calls", `${formatNumber(current.totals.completedCallCount)} / ${formatNumber(current.totals.callCount)} completed`],
-      ["Assistant messages", formatNumber(current.totals.assistantMessageCount)],
-      ["File changes", formatNumber(current.totals.fileChangeCount)],
-      ["Compactions", formatNumber(current.totals.compactionCount)],
-      ["Dynamic tools", current.metadata.dynamicTools.length ? current.metadata.dynamicTools.map((tool) => tool.name).slice(0, 5).join(", ") : "none logged"],
-    ]),
-    summaryFact("Privacy", [
-      ["Mode", privacy.privacyMode || "unknown"],
-      ["Redaction profile", privacy.redactionProfile || "default"],
-      ["API token required", privacy.apiTokenRequired ? "yes" : "no"],
-      ["Images", privacy.imageRouteBehavior || "not logged"],
-      ["Telemetry", privacy.noTelemetry ? "disabled" : "check deployment settings"],
-      ["Third-party uploads", privacy.noThirdPartyUploads ? "disabled" : "check before sharing"],
-    ]),
-    summaryFact("Shareability", [
-      ["Raw logs", shareability.rawLogsSafeToShare ? "safe to share" : "review/redact first"],
-      ["Raw caution", shareability.rawLogCaution || "Review prompts, paths, and tool output before sharing raw logs."],
-      ["Sanitized graph", shareability.sanitizedGraphNote || "Use sanitized graph/export surfaces for sharing."],
-      ["Redacted fields", formatNumber(health.redactedFieldCount)],
-      ["Images", formatNumber(health.imageCount)],
-    ]),
-    summaryFact("Parser Health", parserHealthSummaryLines(health, formatNumber)),
-    summaryFact("Token Context", [
-      ["Telemetry", telemetry.latestTotalTokens ? "available" : "not logged"],
-      ["Latest tokens", formatNumber(telemetry.latestTotalTokens)],
-      ["Context window", formatNumber(telemetry.contextWindow)],
-      ["Context pressure", formatOptionalPercent(telemetry.latestContextPercent)],
-      ["Primary rate limit", formatOptionalPercent(telemetry.primaryRateLimitPercent)],
-      ["Secondary rate limit", formatOptionalPercent(telemetry.secondaryRateLimitPercent)],
-    ])
-  );
-  shell.append(verdict, hero, triage, grid);
-
-  if (health.warnings.length || current.insights.warnings.length) {
-    shell.append(modeCard("Warnings", [...health.warnings, ...current.insights.warnings].slice(0, 10)));
-  }
-
-  modePanelContent.replaceChildren(shell);
-}
-
-function renderForensicVerdictCard(current: SessionGraph, rawShareStatus: string): HTMLElement {
-  const priorityFinding = current.insights.inspectionQueue[0] ?? null;
-  const confidenceFinding = highestConfidenceInspectionItem(current.insights.inspectionQueue) ?? priorityFinding;
-  const card = modeCard("Forensic Verdict");
-  card.classList.add("summary-verdict");
-
-  const verdictGrid = document.createElement("div");
-  verdictGrid.className = "summary-verdict-grid";
-  verdictGrid.append(
-    summaryVerdictField("Outcome", forensicVerdictOutcome(current)),
-    summaryVerdictField("First critical event", forensicVerdictFirstCriticalEvent(current, priorityFinding)),
-    summaryVerdictField("Highest-confidence finding", forensicVerdictFinding(confidenceFinding)),
-    summaryVerdictField("Safe-share state", forensicVerdictSafeShareState(current, rawShareStatus)),
-    summaryVerdictField("Inspect next", forensicVerdictInspectNext(priorityFinding))
-  );
-
-  const action = priorityFinding
-    ? modeButton("Inspect Highest-Priority Finding", () => openInsightEvidence(priorityFinding, "raw"))
-    : modeButton("Review Parser Health", () => selectAppMode("health"));
-  action.classList.add("summary-primary-cta");
-  const actions = document.createElement("div");
-  actions.className = "summary-verdict-actions";
-  actions.append(action);
-
-  card.append(verdictGrid, actions);
-  return card;
-}
-
-function summaryVerdictField(label: string, value: string): HTMLElement {
-  const field = document.createElement("div");
-  field.className = "summary-verdict-field";
-  const term = document.createElement("strong");
-  term.textContent = label;
-  const detail = document.createElement("span");
-  setReadableRedactionText(detail, value);
-  field.append(term, detail);
-  return field;
-}
-
-function forensicVerdictOutcome(current: SessionGraph): string {
-  const { insights, parserHealth } = current;
-  if (insights.failureChain) {
-    const outcome = insights.failureChain.finalOutcome || insights.failureChain.firstLoggedError.title;
-    return `Failed - ${compactInsightText(outcome, 132)}`;
-  }
-  const repeatedToolPattern = insights.repeatedPatterns.find((pattern) => pattern.patternType !== "file_activity");
-  if (repeatedToolPattern) {
-    return `Looped - ${formatNumber(repeatedToolPattern.count)} repeated ${repeatedToolPattern.key} records`;
-  }
-  if (insights.contextPressure.highContextMarkers.length || insights.contextPressure.compactionMarkers.length) {
-    return `Drifted - ${insights.contextPressure.status || "context pressure"}`;
-  }
-  if (parserHealth.unknownEventCount || parserHealth.malformedLineCount) {
-    return `Unknown - ${formatNumber(parserHealth.unknownEventCount)} unknown / ${formatNumber(parserHealth.malformedLineCount)} malformed parser records`;
-  }
-  return current.isLive ? "Live - session is still receiving events" : "Completed - no failure chain detected";
-}
-
-function forensicVerdictFirstCriticalEvent(current: SessionGraph, priorityFinding: InspectionQueueItem | null): string {
-  const firstError = current.insights.failureChain?.firstLoggedError;
-  if (firstError) {
-    return `${firstError.title} at line ${formatNumber(firstError.lineNumber)}`;
-  }
-  if (priorityFinding) {
-    const line = firstInsightLine(priorityFinding);
-    return line ? `${priorityFinding.title} at line ${formatNumber(line)}` : `${priorityFinding.title} (no event line logged)`;
-  }
-  const firstWarning = current.insights.warnings[0] || current.parserHealth.warnings[0];
-  return firstWarning ? compactInsightText(firstWarning, 132) : "No critical or suspicious event detected";
-}
-
-function highestConfidenceInspectionItem(items: InspectionQueueItem[]): InspectionQueueItem | null {
-  return items.reduce<InspectionQueueItem | null>((best, item) => {
-    if (!best) {
-      return item;
-    }
-    const itemRank = insightConfidenceRank(item.confidence);
-    const bestRank = insightConfidenceRank(best.confidence);
-    if (itemRank < bestRank) {
-      return item;
-    }
-    if (itemRank === bestRank && insightSeverityRank(item.severity) < insightSeverityRank(best.severity)) {
-      return item;
-    }
-    return best;
-  }, null);
-}
-
-function insightConfidenceRank(confidence: string): number {
-  switch (confidence.toLowerCase()) {
-    case "direct":
-    case "high":
-      return 0;
-    case "strong heuristic":
-    case "medium":
-      return 1;
-    case "weak heuristic":
-    case "low":
-      return 2;
-    default:
-      return 3;
-  }
-}
-
-function forensicVerdictFinding(finding: InspectionQueueItem | null): string {
-  if (!finding) {
-    return "No queued high-confidence finding; use parser health for audit context.";
-  }
-  const summary = compactInsightText(finding.redactionSafeSummary || finding.summary, 132);
-  return `${finding.title} (${finding.confidence} confidence, ${finding.severity} severity) - ${summary}`;
-}
-
-function forensicVerdictSafeShareState(current: SessionGraph, rawShareStatus: string): string {
-  const tokenStatus = current.privacySummary.apiTokenRequired ? "API token required; token value hidden" : "No API token requirement logged";
-  return `${rawShareStatus}; ${tokenStatus}`;
-}
-
-function forensicVerdictInspectNext(priorityFinding: InspectionQueueItem | null): string {
-  if (!priorityFinding) {
-    return "No queued finding; review Parser Health only if the audit needs raw parser details.";
-  }
-  return `${priorityFinding.title} - ${insightPlainReason(priorityFinding)}`;
-}
-
-function summaryFact(title: string, facts: [string, string][]): HTMLElement {
-  const card = document.createElement("article");
-  card.className = "summary-fact";
-  const heading = document.createElement("h3");
-  heading.textContent = title;
-  const list = document.createElement("dl");
-  facts.forEach(([label, value]) => {
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const detail = document.createElement("dd");
-    setReadableRedactionText(detail, value);
-    list.append(term, detail);
+  const renderedGraph = graph;
+  renderSummaryModePanelView({
+    graph: renderedGraph,
+    modePanelSummary,
+    modePanelContent,
+    modeCard,
+    modeParagraph,
+    modeButton,
+    modeEmpty,
+    setReadableRedactionText,
+    selectAppMode,
+    copyText,
+    copySafeShareSummary: () => renderedGraph ? copySafeShareSummaryForGraph(renderedGraph) : "",
+    setRawModePayload,
+    modeTimelineRows,
+    focusEventByLine,
+    showEvidenceFallback,
   });
-  card.append(heading, list);
-  return card;
-}
-
-function renderSummaryInsightQueue(insights: TraceInsights): HTMLElement {
-  const card = modeCard("Inspect First");
-  card.classList.add("summary-insights");
-  const totalItems = insights.inspectionQueue.length;
-  const items = insights.inspectionQueue.slice(0, SUMMARY_INSPECTION_QUEUE_LIMIT);
-  if (!totalItems) {
-    card.append(
-      modeParagraph("No high-priority findings detected. Parser health and raw inspection remain available for audit."),
-      summaryInsightActionRow([modeButton("Open Insights", () => selectAppMode("insights")), modeButton("Audit Raw", () => selectAppMode("raw"))])
-    );
-    return card;
-  }
-
-  const intro = modeParagraph(
-    totalItems > items.length
-      ? `Showing the first ${formatNumber(items.length)} of ${formatNumber(totalItems)} queued findings for inspect-first review.`
-      : "Top queued findings are ready for inspect-first review; each row exposes one evidence drawer that keeps Timeline, Transcript, Raw JSON, and Insights reachable."
-  );
-  const list = document.createElement("div");
-  list.className = "mode-linked-list";
-  items.forEach((item, index) => {
-    const row = document.createElement("article");
-    row.className = `mode-linked-row severity-${item.severity}`;
-    const body = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = `${index + 1}. ${item.title}`;
-    const meta = document.createElement("small");
-    meta.textContent = summaryInsightMeta(item);
-    const summary = document.createElement("p");
-    setReadableRedactionText(summary, item.redactionSafeSummary || item.summary);
-    body.append(title, meta, summary);
-
-    const drawerId = `summary-evidence-drawer-${index + 1}`;
-    const triggerId = `${drawerId}-trigger`;
-    const drawer = summaryInsightEvidenceDrawer(item, drawerId, triggerId);
-    const trigger = modeButton("View Evidence", () => {
-      const expanded = drawer.hidden;
-      if (expanded) {
-        closeOtherSummaryEvidenceDrawers(list, drawer);
-      }
-      setSummaryEvidenceDrawerExpanded(trigger, drawer, expanded);
-    });
-    trigger.id = triggerId;
-    trigger.classList.add("summary-evidence-trigger");
-    trigger.setAttribute("aria-controls", drawerId);
-    trigger.setAttribute("aria-expanded", "false");
-    const actions = summaryInsightActionRow([trigger]);
-    row.append(body, actions, drawer);
-    list.append(row);
-  });
-  card.append(intro, list);
-  return card;
-}
-
-function summaryInsightActionRow(buttons: HTMLButtonElement[]): HTMLElement {
-  const actions = document.createElement("div");
-  actions.className = "mode-row-actions";
-  actions.append(...buttons);
-  return actions;
-}
-
-function summaryInsightEvidenceDrawer(item: InspectionQueueItem, drawerId: string, triggerId: string): HTMLElement {
-  const drawer = document.createElement("section");
-  drawer.id = drawerId;
-  drawer.className = "summary-evidence-drawer";
-  drawer.hidden = true;
-  drawer.tabIndex = -1;
-  drawer.dataset.triggerId = triggerId;
-  drawer.setAttribute("role", "region");
-  drawer.setAttribute("aria-labelledby", `${drawerId}-title`);
-
-  const heading = document.createElement("h4");
-  heading.id = `${drawerId}-title`;
-  heading.textContent = `Evidence drawer: ${item.title}`;
-  const helper = modeParagraph("Start with the summary here, then open the focused evidence surface without losing this finding as context.");
-
-  const summarySection = document.createElement("section");
-  summarySection.className = "summary-evidence-section";
-  summarySection.setAttribute("aria-labelledby", `${drawerId}-summary`);
-  const summaryHeading = document.createElement("h5");
-  summaryHeading.id = `${drawerId}-summary`;
-  summaryHeading.textContent = "Summary";
-  const summaryText = modeParagraph(item.redactionSafeSummary || item.summary);
-  const facts = document.createElement("dl");
-  facts.className = "summary-evidence-meta";
-  const line = firstInsightLine(item);
-  ([
-    ["Severity", item.severity],
-    ["Confidence", item.confidence],
-    ["Directness", item.directness],
-    ["Line", line ? `line ${line}` : "no event line logged"],
-    ["Events", item.eventIds.length ? `${formatNumber(item.eventIds.length)} linked` : "no linked event ids"],
-  ] as [string, string][]).forEach(([label, value]) => {
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const detail = document.createElement("dd");
-    detail.textContent = value;
-    facts.append(term, detail);
-  });
-  summarySection.append(summaryHeading, summaryText, facts);
-
-  const surfaceSection = document.createElement("section");
-  surfaceSection.className = "summary-evidence-section";
-  surfaceSection.setAttribute("aria-labelledby", `${drawerId}-surfaces`);
-  const surfaceHeading = document.createElement("h5");
-  surfaceHeading.id = `${drawerId}-surfaces`;
-  surfaceHeading.textContent = "Evidence surfaces";
-  const surfaceText = modeParagraph("Open Timeline or Transcript for positioned rows, Raw JSON for the selected payload, or Insights for the grouped finding view.");
-  const surfaceActions = summaryInsightActionRow([
-    modeButton("Timeline", () => openInsightEvidence(item, "timeline")),
-    modeButton("Transcript", () => openInsightEvidence(item, "transcript")),
-    modeButton("Raw JSON", () => openInsightEvidence(item, "raw")),
-    modeButton("Insights", () => openInsightDetails(item)),
-  ]);
-  surfaceActions.classList.add("summary-evidence-tabs");
-  surfaceActions.setAttribute("role", "group");
-  surfaceActions.setAttribute("aria-label", `Evidence surfaces for ${item.title}`);
-  surfaceSection.append(surfaceHeading, surfaceText, surfaceActions);
-
-  drawer.append(heading, helper, summarySection, surfaceSection);
-  return drawer;
-}
-
-function closeOtherSummaryEvidenceDrawers(list: HTMLElement, activeDrawer: HTMLElement): void {
-  list.querySelectorAll<HTMLElement>(".summary-evidence-drawer").forEach((drawer) => {
-    if (drawer === activeDrawer || drawer.hidden) {
-      return;
-    }
-    const trigger = drawer.dataset.triggerId ? document.getElementById(drawer.dataset.triggerId) : null;
-    if (trigger instanceof HTMLButtonElement) {
-      setSummaryEvidenceDrawerExpanded(trigger, drawer, false);
-    } else {
-      drawer.hidden = true;
-    }
-  });
-}
-
-function setSummaryEvidenceDrawerExpanded(trigger: HTMLButtonElement, drawer: HTMLElement, expanded: boolean): void {
-  drawer.hidden = !expanded;
-  trigger.textContent = expanded ? "Hide Evidence" : "View Evidence";
-  trigger.setAttribute("aria-expanded", String(expanded));
-  if (expanded) {
-    drawer.focus();
-  }
-}
-
-function summaryInsightMeta(item: InspectionQueueItem): string {
-  const line = firstInsightLine(item);
-  const eventLabel = item.eventIds.length ? `${formatNumber(item.eventIds.length)} linked events` : "no linked event ids";
-  const lineLabel = line ? `line ${line}` : "no event line logged";
-  return [item.severity, item.confidence, item.directness, lineLabel, eventLabel].filter(Boolean).join(" - ");
-}
-
-function firstInsightLine(item: InspectionQueueItem): number | null {
-  return item.lineNumbers.find((line) => Number.isFinite(line) && line > 0) ?? null;
-}
-
-function evidenceRowForInsight(item: InspectionQueueItem): ModeEventRow | null {
-  const rows = modeTimelineRows();
-  const line = firstInsightLine(item);
-  const lineMatch = line ? rows.find((row) => row.lineNumber === line) : null;
-  if (lineMatch) {
-    return lineMatch;
-  }
-  if (!item.eventIds.length) {
-    return null;
-  }
-  const eventIds = new Set(item.eventIds);
-  return rows.find((row) => eventIds.has(row.id) || (row.node ? eventIds.has(row.node.id) : false)) ?? null;
-}
-
-function openInsightDetails(item: InspectionQueueItem): void {
-  selectAppMode("insights");
-  setRawModePayload(item);
-  modePanelSummary.textContent = `Queued insight selected - ${item.title}`;
-  const notice = modeEmpty("Selected insight loaded in Raw for audit; return to Summary when you want the unified evidence drawer for Timeline, Transcript, or Raw rows.");
-  notice.classList.add("mode-notice");
-  modePanelContent.prepend(notice);
-}
-
-function openInsightEvidence(item: InspectionQueueItem, destination: AppMode): void {
-  const row = evidenceRowForInsight(item);
-  if (row) {
-    focusEventByLine(row.lineNumber, item.title, item, destination);
-    return;
-  }
-  const detail = firstInsightLine(item) || item.eventIds.length
-    ? "Logged evidence did not match a rendered Timeline or Transcript row; showing the queued insight instead."
-    : "No event line is logged for this insight; showing the queued insight instead.";
-  openInsightDetails(item);
-  showEvidenceFallback(item.title, item, detail);
 }
 
 function cleanupModePanelRender(): void {
@@ -8272,53 +7768,36 @@ async function ensureUnknownsReportLoaded(force = false): Promise<UnknownsReport
 }
 
 function showEvidenceFallback(title: string, payload: unknown, detail: string): void {
-  const message = `${detail} Insights remains available and Raw is updated with the selected evidence payload.`;
-  setRawModePayload(payload);
-  modePanelSummary.textContent = "Evidence fallback";
-  const card = modeCard("Evidence Fallback", [message]);
-  card.classList.add("mode-notice");
-  const actions = document.createElement("div");
-  actions.className = "mode-row-actions";
-  actions.append(
-    modeButton("Open Insights", () => {
-      selectAppMode("insights");
-      setRawModePayload(payload);
-    }),
-    modeButton("Audit Raw", () => {
-      selectAppMode("raw");
-      showEvidenceFallback(title, payload, detail);
-    })
-  );
-  card.append(actions);
-  if (activeAppMode === "raw") {
-    renderRawPayload(payload ?? {}, card);
-    return;
-  }
-  cleanupModePanelRender();
-  modePanelContent.prepend(card);
+  showEvidenceFallbackPanel({
+    title,
+    payload,
+    detail,
+    activeAppMode,
+    modePanelSummary,
+    modePanelContent,
+    modeCard,
+    modeButton,
+    setRawModePayload,
+    selectAppMode,
+    renderRawPayload,
+    cleanupModePanelRender,
+    showEvidenceFallback,
+  });
 }
 
 function focusEventByLine(lineNumber: number | null | undefined, title: string, payload: unknown, destination: AppMode = "raw"): void {
-  if (lineNumber) {
-    const row = modeTimelineRows().find((candidate) => candidate.lineNumber === lineNumber);
-    if (row) {
-      inspectModeRow(row);
-      if (row.node) {
-        openSelectedEventMode(destination);
-      } else if (destination !== "map") {
-        selectAppMode(destination);
-        setRawModePayload(row.source);
-      }
-      return;
-    }
-  }
-  if (destination !== "map") {
-    selectAppMode(destination);
-  }
-  const detail = lineNumber
-    ? `Line ${lineNumber} is logged for ${title}, but no rendered Timeline or Transcript row is available.`
-    : "No event line is logged for this insight or evidence reference; showing fallback payload instead.";
-  showEvidenceFallback(title, payload, detail);
+  focusEvidenceByLine({
+    lineNumber,
+    title,
+    payload,
+    destination,
+    modeTimelineRows,
+    inspectModeRow,
+    openSelectedEventMode,
+    selectAppMode,
+    setRawModePayload,
+    showEvidenceFallback,
+  });
 }
 
 function parserHealthSummaryText(current: SessionGraph): string {
@@ -9308,15 +8787,4 @@ function openSyntheticEventContext(kind: string, title: string, body: string): v
   syncEventContextActions();
   renderStreamImages();
   renderPlainEventContextBody(body);
-}
-
-function shortPath(path: string | null | undefined): string {
-  if (!path) {
-    return "";
-  }
-  const parts = path.split(/[\\/]/);
-  if (parts.length <= 4) {
-    return path;
-  }
-  return `${parts.at(-4)}/${parts.at(-3)}/${parts.at(-2)}/${parts.at(-1)}`;
 }

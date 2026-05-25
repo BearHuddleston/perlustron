@@ -11,6 +11,9 @@ import { createCheck, cssBlockFor } from "./check-helpers.mjs";
 const { expect, expectEqual, fail, finish } = createCheck("Readable redaction placeholders");
 
 const appSource = readFileSync("src/frontend/app.ts", "utf8");
+const summaryModePath = "src/frontend/modes/summary.ts";
+const summaryModeSource = existsSync(summaryModePath) ? readFileSync(summaryModePath, "utf8") : "";
+const summarySurface = `${appSource}\n${summaryModeSource}`;
 const styles = readFileSync("static/styles.css", "utf8");
 const helperPath = "src/frontend/redaction_display.ts";
 
@@ -20,7 +23,7 @@ expect(appSource.includes("setReadableRedactionText"), "app uses a central DOM r
 expect(appSource.includes("renderPlainEventContextBody(payload)"), "event context still routes through the plain payload renderer");
 expect(appSource.includes("modeParagraph") && appSource.includes("setReadableRedactionText(paragraph"), "mode paragraphs render readable redaction placeholders");
 expect(appSource.includes("modeCard") && appSource.includes("setReadableRedactionText(item"), "mode-card evidence lists render readable redaction placeholders");
-expect(appSource.includes("summaryFact") && appSource.includes("setReadableRedactionText(detail"), "summary facts render readable redaction placeholders");
+expect(summarySurface.includes("summaryFact") && summarySurface.includes("setReadableRedactionText(detail"), "summary facts render readable redaction placeholders");
 
 const chipBlock = cssBlockFor(styles, ".redaction-chip");
 const summaryBlock = cssBlockFor(styles, ".redaction-group-summary");

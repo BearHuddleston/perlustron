@@ -14,7 +14,9 @@ const repoRoot = path.resolve(__dirname, "..");
 const { expect, fail, finish } = createCheck("Copy-safe share");
 
 const app = readFileSync(path.join(repoRoot, "src/frontend/app.ts"), "utf8");
-expect(app.includes('modeButton("Copy Share Summary"'), "Summary should expose a Copy Share Summary action.");
+const summaryMode = readFileSync(path.join(repoRoot, "src/frontend/modes/summary.ts"), "utf8");
+const summarySurface = `${app}\n${summaryMode}`;
+expect(summarySurface.includes('modeButton("Copy Share Summary"'), "Summary should expose a Copy Share Summary action.");
 expect(app.includes('modeButton("Copy Safe Reference"') || app.includes('modeButton("Copy Safe Ref"'), "Non-Map event surfaces should expose a Copy Safe Reference action.");
 expect(app.includes("copySafeReferenceText"), "App should use the shared copy-safe reference formatter.");
 expect(app.includes("copySafeShareSummaryText"), "App should use the shared copy-safe share summary formatter.");
