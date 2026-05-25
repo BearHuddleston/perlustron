@@ -66,3 +66,14 @@ export function formatBytes(bytes: number): string {
   }
   return `${bytes} B`;
 }
+
+export function shortPath(path: string | null | undefined): string {
+  if (!path) {
+    return "";
+  }
+  const parts = path.split(/[\\/]/);
+  if (parts.length <= 4) {
+    return path;
+  }
+  return `${parts.at(-4)}/${parts.at(-3)}/${parts.at(-2)}/${parts.at(-1)}`;
+}
