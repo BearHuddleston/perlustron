@@ -8,6 +8,15 @@ Release docs may include tag, download, and repository-description commands for 
 
 Before applying new release notes to a public release, confirm the selected tag actually contains the documented content. If a tag already exists, stop and get a human decision for a new version, release addendum, or retag policy before changing anything irreversible.
 
+## Release Classification
+
+Perlustron release assets should always state which trust tier they belong to:
+
+- **Unsigned developer-preview**: platform archives built by GitHub Actions without Apple Developer signing secrets. These are appropriate for technical early adopters who can verify checksums and understand quarantine prompts.
+- **Signed/notarized macOS release**: macOS archives produced when the Apple Developer certificate and notarization secrets are configured. The workflow signs the CLI payload, submits it to Apple, and attempts stapling where raw CLI archives support it.
+
+Do not describe a macOS archive as signed/notarized unless the manifest and workflow logs show signing and notarization were configured for that exact run.
+
 ## Build Locally
 
 ```powershell
@@ -71,7 +80,7 @@ At minimum, compare and record full parse, append parse, warm diff, HTML export,
 
 ## Artifact Expectations
 
-Release assets should include each archive plus its matching `.sha256` file. The release body should not claim features that are not present in the selected tag. Extracted archives should include:
+Release assets should include each archive plus its matching `.sha256` and `.manifest.json` files. The release body should not claim features that are not present in the selected tag. Extracted archives should include:
 
 - `perlustron` or `perlustron.exe`
 - `README.md`
@@ -81,6 +90,19 @@ Release assets should include each archive plus its matching `.sha256` file. The
 - `LICENSE-APACHE`
 
 Normal users should not need Node, npm, Rust, or CDN access after downloading a release artifact.
+
+## Artifact Manifest
+
+Every platform archive should publish `ARCHIVE_NAME.manifest.json` beside the archive and checksum. The manifest is generated from the staged bundle before upload and records:
+
+- package name, version/tag, target triple label, source commit, workflow, and run id;
+- archive filename, archive SHA-256, and matching checksum filename;
+- macOS signing status: `unsigned-developer-preview`, `signed`, or `not-applicable`;
+- notarization status: `not-configured`, `submitted-by-release-workflow`, or `not-applicable`;
+- required package paths such as the binary, licenses, `SECURITY.md`, `docs/release.md`, privacy docs, and bundled screenshot asset;
+- per-file size and SHA-256 for the packaged bundle contents.
+
+Use the `.sha256` file for quick download verification and the manifest when auditing exactly which docs/assets/checksums were included in a release. The workflow also extracts each archive and checks required docs/assets before starting the UI smoke test so the manifest is not the only packaging guard.
 
 ## Runtime Configuration
 
@@ -125,29 +147,47 @@ Expand-Archive .\perlustron-windows-x86_64.zip -DestinationPath .\perlustron-unp
 .\perlustron-unpacked\perlustron-windows-x86_64\perlustron.exe --demo
 ```
 
-## Future Install Channels
+## Homebrew Distribution Path
 
-Homebrew formula template:
+Homebrew should be treated as a follow-up publishing channel, not an automatic side effect of tagging this repo. A release owner should only publish or update a tap after the GitHub Release is approved, archives are stable, checksums match, and the manifest confirms the expected bundle contents.
+
+Recommended manual tap flow:
+
+1. Create or update a separate tap repository such as `BearHuddleston/homebrew-tap`.
+2. Copy the final macOS archive URL and SHA-256 from the published release assets.
+3. Add a formula that selects the correct macOS archive for Apple Silicon or Intel.
+4. Run `brew audit --strict --new-formula perlustron` and `brew test perlustron` from a clean machine.
+5. Link the tap from the release notes only after the formula installs and runs `perlustron --version`.
+
+Formula sketch:
 
 ```ruby
 class Perlustron < Formula
   desc "Local-first agent-forensics workbench for Codex and Claude Code JSONL logs"
   homepage "https://github.com/BearHuddleston/perlustron"
-  url "https://github.com/BearHuddleston/perlustron/releases/download/vVERSION/perlustron-macos-aarch64.tar.gz"
-  sha256 "SHA256_FROM_RELEASE"
   license any_of: ["MIT", "Apache-2.0"]
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/BearHuddleston/perlustron/releases/download/vVERSION/perlustron-macos-aarch64.tar.gz"
+      sha256 "SHA256_FROM_AARCH64_RELEASE"
+    else
+      url "https://github.com/BearHuddleston/perlustron/releases/download/vVERSION/perlustron-macos-x86_64.tar.gz"
+      sha256 "SHA256_FROM_X86_64_RELEASE"
+    end
+  end
 
   def install
     bin.install "perlustron"
   end
 
   test do
-    system "#{bin}/perlustron", "--version"
+    assert_match version.to_s, shell_output("#{bin}/perlustron --version")
   end
 end
 ```
 
-Do not publish a tap until the release archive names and checksums are stable for the target version.
+Do not publish a tap, mutate a tap repository, or advertise `brew install` commands until a human release owner explicitly approves that channel for the target version.
 
 Cargo source install is supported for developers:
 
@@ -177,6 +217,20 @@ xattr -dr com.apple.quarantine perlustron
 ```
 
 Raw CLI tar archives do not always support stapled notarization tickets. The workflow submits the signed macOS payload to Apple and attempts stapling where the target supports it; otherwise Gatekeeper can verify notarization online.
+
+## Supply-chain Checks
+
+Required release builds already use `npm ci`, `cargo build --release --locked`, `cargo fmt --check`, Rust tests, and clippy through `npm run check`. Optional supply-chain checks can be run during release prep and recorded in the release notes when the tools/configuration are available:
+
+```bash
+npm audit --audit-level=high
+cargo install cargo-audit --locked
+cargo audit
+cargo install cargo-deny --locked
+cargo deny check advisories bans licenses sources
+```
+
+Do not make `cargo audit`, `cargo deny`, SBOM generation, or signing-key attestations required CI gates until their configs and false-positive handling are checked into the repo. If adopted later, add the config files and document the exact policy before blocking releases on them.
 
 ## Smoke Test
 
