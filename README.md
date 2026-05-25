@@ -31,9 +31,9 @@ The screenshot above was generated from the bundled sanitized Codex demo in priv
 
 ## Install
 
-Download the latest release archive for your platform, verify its checksum, extract it, then run `perlustron --demo`.
+Download the latest release archive for your platform, verify its checksum, extract it, then run `perlustron --demo`. Each archive also publishes a `.manifest.json` inventory for release audits.
 
-Without GitHub CLI, open the repository's Releases page in a browser, download the archive and matching `.sha256` file for your platform, then use the verification commands below. The expected artifact names are:
+Without GitHub CLI, open the repository's Releases page in a browser, download the archive, matching `.sha256` file, and optional `.manifest.json` file for your platform, then use the verification commands below. The expected artifact names are:
 
 - `perlustron-windows-x86_64.zip`
 - `perlustron-linux-x86_64.tar.gz`
@@ -89,9 +89,9 @@ cargo install --path .
 perlustron --demo
 ```
 
-Release archives include the binary, local UI assets embedded in the binary, bundled sanitized demo fixtures, licenses, `SECURITY.md`, and docs. Normal release use does not require Rust, Node, npm, CDN access, or network access.
+Release archives include the binary, local UI assets embedded in the binary, bundled sanitized demo fixtures, licenses, `SECURITY.md`, and docs. Matching `.sha256` and `.manifest.json` assets support checksum verification and per-file package audits. Normal release use does not require Rust, Node, npm, CDN access, or network access.
 
-The v0.1.0 macOS artifacts are unsigned developer-preview archives. Future releases can be signed and submitted for notarization when Apple Developer signing secrets are configured. Unsigned archives may require:
+The v0.1.0 macOS artifacts are unsigned developer-preview archives. Future releases can be signed and submitted for notarization when Apple Developer signing secrets are configured; signed/notarized status is recorded in the release manifest for each macOS archive. Unsigned archives may require:
 
 ```bash
 xattr -dr com.apple.quarantine perlustron
@@ -121,7 +121,7 @@ Partial:
 Planned:
 
 - More fixture coverage as Codex and Claude schemas evolve.
-- Homebrew/tap publishing.
+- Homebrew/tap publishing after signed checksums/manifests are approved.
 - More packaged macOS installer formats if needed for stapled notarization.
 
 Repository About text is maintained manually in GitHub. Recommended text:
