@@ -14,6 +14,12 @@ perlustron insights session.jsonl --redacted --profile strict
 perlustron unknowns session.jsonl --redacted -o unknowns-redacted.json
 ```
 
+## Serving Logs Locally
+
+Perlustron binds to `127.0.0.1` by default and keeps API routes tokenless for convenient local-only inspection. Startup prints the current API mode so you can see whether the graph APIs are tokenless or token-protected.
+
+If you bind outside loopback with `--host` and do not set `--require-api-token`, startup prints a `SECURITY WARNING`. Non-loopback tokenless mode can expose raw session graph APIs to anything that can reach the host, and those graphs may include prompts, code, paths, command output, images, tool results, tokens, cookies, environment variables, and credentials. Use `--require-api-token` for non-loopback binds unless the network is isolated and trusted.
+
 ## Profiles
 
 | Profile | Behavior |
