@@ -7,6 +7,7 @@ import { mapColorVariableKeys, paletteCssBlock, readFrontendPalette } from "./sy
 
 const html = readFileSync("static/index.html", "utf8");
 const app = readFileSync("src/frontend/app.ts", "utf8");
+const metadata = readFileSync("src/frontend/chrome/metadata.ts", "utf8");
 const summaryMode = readFileSync("src/frontend/modes/summary.ts", "utf8");
 const summarySurface = `${app}\n${summaryMode}`;
 const styles = readFileSync("static/styles.css", "utf8");
@@ -266,8 +267,8 @@ expect(styles.includes(".status-bar-items .root-row.metadata-row"), "Metadata ro
 expect(styles.includes(".status-bar-items .root-icon"), "Status bar metadata rows should use compact semantic icons.");
 expect(!styles.includes(".status-bar-items .root-dot"), "Status bar metadata rows should not render generic color squares.");
 expect(!styles.includes(".root-row em"), "Metadata rows should not keep unused status-badge styling.");
-expect(app.includes("METADATA_ICON_PATHS") && app.includes("renderStatusIcon"), "Metadata renderer should map status sections to semantic icons.");
-expect(app.includes("function renderMetadataRow") && !app.includes("function renderInfoRow"), "Metadata renderer should not keep the removed generic info-row API.");
+expect(metadata.includes("METADATA_ICON_PATHS") && metadata.includes("renderStatusIcon"), "Metadata renderer should map status sections to semantic icons.");
+expect(metadata.includes("function renderMetadataRow") && !app.includes("function renderInfoRow"), "Metadata renderer should not keep the removed generic info-row API.");
 expect(styles.includes(".stage-session-context"), "Stage context row should style the moved source/session controls.");
 expect(styles.includes(".stage-metric"), "Stage context row should render metrics with the same compact inline style as session controls.");
 expect(/border:\s*0/.test(stageMetric) && /background:\s*transparent/.test(stageMetric) && /box-shadow:\s*none/.test(stageMetric), "Stage metrics should use a flat inline style instead of boxed cards.");
