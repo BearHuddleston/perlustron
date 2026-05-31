@@ -60,6 +60,26 @@ impl Drop for TempDirGuard {
     }
 }
 
+// Keep draining stdout after startup so the child never sees a closed pipe while
+// printing follow-up startup/status lines or request logs.
+fn watch_stdout_for_startup(
+    stdout: impl Read + Send + 'static,
+    startup_marker: &'static str,
+) -> mpsc::Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        let mut sent_startup = false;
+        for line in reader.lines().map_while(Result::ok) {
+            if !sent_startup && line.contains(startup_marker) {
+                let _ = sender.send(line);
+                sent_startup = true;
+            }
+        }
+    });
+    receiver
+}
+
 fn run_ok(args: &[&str]) -> String {
     let output = Command::new(perlustron_bin())
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -268,16 +288,7 @@ fn demo_server_serves_local_assets_without_api_token_by_default() {
         .expect("spawn demo server");
     let stdout = child.stdout.take().expect("server stdout");
     let mut guard = ChildGuard(&mut child);
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines().map_while(Result::ok) {
-            if line.contains("Serving Perlustron at ") {
-                let _ = sender.send(line);
-                return;
-            }
-        }
-    });
+    let receiver = watch_stdout_for_startup(stdout, "Serving Perlustron at ");
 
     let line = receiver
         .recv_timeout(Duration::from_secs(10))
@@ -437,16 +448,7 @@ fn demo_server_can_require_api_token() {
         .expect("spawn token-gated demo server");
     let stdout = child.stdout.take().expect("server stdout");
     let mut guard = ChildGuard(&mut child);
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines().map_while(Result::ok) {
-            if line.contains("Serving Perlustron at ") {
-                let _ = sender.send(line);
-                return;
-            }
-        }
-    });
+    let receiver = watch_stdout_for_startup(stdout, "Serving Perlustron at ");
 
     let line = receiver
         .recv_timeout(Duration::from_secs(10))
