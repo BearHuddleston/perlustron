@@ -809,11 +809,13 @@ kbd {
   left: 50%;
   bottom: 16px;
   z-index: 3;
+  width: min(920px, calc(100% - 36px));
   max-width: calc(100% - 36px);
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 6px 12px;
   transform: translateX(-50%);
 }
 
@@ -827,6 +829,41 @@ kbd {
   color: var(--muted);
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.map-filter-status {
+  grid-column: 1 / -1;
+  justify-self: center;
+  max-width: min(760px, 100%);
+  min-height: 20px;
+  padding: 3px 10px;
+  border: 1px solid rgba(184, 194, 206, 0.14);
+  border-radius: 999px;
+  background: rgba(8, 10, 13, 0.72);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.map-live-hud.filter-active .map-filter-status {
+  border-color: rgba(57, 210, 230, 0.24);
+  color: var(--ink);
+}
+
+.map-live-hud.filter-active .map-metrics button:not(.active) {
+  opacity: 0.42;
+}
+
+.map-metrics button.map-filter-empty {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.map-metrics button.map-filter-empty .metric-dot {
+  box-shadow: none;
 }
 
 .map-metrics::-webkit-scrollbar {
