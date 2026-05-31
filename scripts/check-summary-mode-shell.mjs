@@ -136,6 +136,7 @@ expect(summarySurface.includes("function forensicVerdictFirstCriticalEvent"), "F
 expect(summarySurface.includes("Highest-confidence finding"), "Forensic Verdict should name the highest-priority finding before the detail queue.");
 expect(summarySurface.includes('modeButton("Start Inspect-First Review"'), "Forensic Verdict should expose one obvious primary CTA for the top finding.");
 const confidenceRankBlock = summarySurface.match(/function insightConfidenceRank[\s\S]*?\n}\n\nfunction insightSeverityRank/)?.[0] ?? "";
+const summaryInsightEvidenceDrawerBlock = summaryMode.match(/function summaryInsightEvidenceDrawer[\s\S]*?\n}\n\nfunction closeOtherSummaryEvidenceDrawers/)?.[0] ?? "";
 expect(/case "direct":[\s\S]*return 0;/.test(confidenceRankBlock), "Forensic Verdict confidence ranking should treat direct evidence as the highest-confidence source.");
 expect(/case "strong heuristic":[\s\S]*return 1;/.test(confidenceRankBlock), "Forensic Verdict confidence ranking should rank strong heuristic evidence ahead of weak heuristics.");
 expect(/case "weak heuristic":[\s\S]*return 2;/.test(confidenceRankBlock), "Forensic Verdict confidence ranking should rank weak heuristic evidence below direct and strong heuristic evidence.");
@@ -153,6 +154,10 @@ expect(summarySurface.includes('modeButton("View Evidence"'), "Summary insights 
 expect(!summarySurface.includes('modeButton("Timeline Evidence"') && !summarySurface.includes('modeButton("Transcript Evidence"') && !summarySurface.includes('modeButton("Raw Evidence"'), "Summary insights should not render repeated per-finding evidence CTAs.");
 expect(summarySurface.includes("function summaryInsightEvidenceDrawer"), "Summary insights should render a unified evidence drawer.");
 expect(summarySurface.includes('trigger.setAttribute("aria-controls", drawerId)') && summarySurface.includes('trigger.setAttribute("aria-expanded", "false")'), "Summary evidence drawer trigger should expose keyboard and screen-reader expansion state.");
+expect(summaryInsightEvidenceDrawerBlock.includes('whyHeading.textContent = "Why this finding?"'), "Summary evidence drawer should explain why each queued finding is prioritized.");
+expect(summaryInsightEvidenceDrawerBlock.includes("item.explanation || summaryInsightPlainReason(item)"), "Summary evidence drawer should prefer backend finding explanations with a deterministic local fallback.");
+expect(summaryInsightEvidenceDrawerBlock.indexOf("Why this finding?") > summaryInsightEvidenceDrawerBlock.indexOf('summaryHeading.textContent = "Summary"'), "Why-this-finding copy should come after the concise summary.");
+expect(summaryInsightEvidenceDrawerBlock.indexOf("Why this finding?") < summaryInsightEvidenceDrawerBlock.indexOf('surfaceHeading.textContent = "Evidence surfaces"'), "Why-this-finding copy should come before the evidence surface buttons.");
 expect(summarySurface.includes('surfaceActions.setAttribute("role", "group")'), "Summary evidence drawer surfaces should be grouped for assistive tech.");
 expect(summarySurface.includes("function openInsightEvidence"), "Summary drawer actions should route through an explicit insight evidence helper.");
 expect(summarySurface.includes("No event line is logged for this insight"), "Insight evidence routing should show a deterministic no-line fallback instead of silently failing.");
