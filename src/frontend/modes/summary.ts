@@ -588,6 +588,17 @@ function summaryInsightEvidenceDrawer(item: SummaryInspectionQueueItem, drawerId
   });
   summarySection.append(summaryHeading, summaryText, facts);
 
+  const whySection = document.createElement("section");
+  whySection.className = "summary-evidence-section";
+  whySection.setAttribute("aria-labelledby", `${drawerId}-why`);
+  const whyHeading = document.createElement("h5");
+  whyHeading.id = `${drawerId}-why`;
+  whyHeading.textContent = "Why this finding?";
+  const whyText = options.modeParagraph("");
+  const explanation = item.explanation || summaryInsightPlainReason(item);
+  options.setReadableRedactionText(whyText, explanation);
+  whySection.append(whyHeading, whyText);
+
   const surfaceSection = document.createElement("section");
   surfaceSection.className = "summary-evidence-section";
   surfaceSection.setAttribute("aria-labelledby", `${drawerId}-surfaces`);
@@ -606,7 +617,7 @@ function summaryInsightEvidenceDrawer(item: SummaryInspectionQueueItem, drawerId
   surfaceActions.setAttribute("aria-label", `Evidence surfaces for ${item.title}`);
   surfaceSection.append(surfaceHeading, surfaceText, surfaceActions);
 
-  drawer.append(heading, helper, summarySection, surfaceSection);
+  drawer.append(heading, helper, summarySection, whySection, surfaceSection);
   return drawer;
 }
 

@@ -333,8 +333,10 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
     timeout: UI_TIMEOUT_MS,
   });
 
-  const expectedQueuedCount =
-    (await fetchJson(`${server.baseUrl}/api/session?token=${encodeURIComponent(server.token)}`))?.insights?.inspectionQueue?.length ?? 0;
+  const expectedInspectionQueue =
+    (await fetchJson(`${server.baseUrl}/api/session?token=${encodeURIComponent(server.token)}`))?.insights?.inspectionQueue ?? [];
+  const expectedQueuedCount = expectedInspectionQueue.length;
+  const expectedFirstExplanation = String(expectedInspectionQueue[0]?.explanation || "").trim();
   const summaryInsights = await page.evaluate((queued) => {
     const legacyLabels = new Set(["Raw Evidence", "Timeline Evidence", "Transcript Evidence"]);
     const allActionButtons = Array.from(document.querySelectorAll(".summary-insights .mode-action-button"));
@@ -385,6 +387,10 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   });
   assert(drawer.triggerExpanded === "true" && drawer.triggerText === "Hide Evidence", "View Evidence should expose expanded state");
   assert(drawer.text.includes("Summary") && drawer.text.includes("Evidence surfaces"), "Evidence drawer should include Summary and surface sections");
+  assert(drawer.text.includes("Why this finding?"), "Evidence drawer should explain why the finding is prioritized before surface routing");
+  if (expectedFirstExplanation) {
+    assert(drawer.text.includes(expectedFirstExplanation), "Evidence drawer should preserve the backend finding explanation text");
+  }
   for (const label of ["Timeline", "Transcript", "Raw JSON", "Insights"]) {
     assert(drawer.surfaceLabels.includes(label), `Evidence drawer should expose the ${label} surface`);
   }
