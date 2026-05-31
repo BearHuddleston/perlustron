@@ -147,7 +147,7 @@ fn attach_subagent_nodes(source: SessionSource, parent_path: &Path, prompts: &mu
     }
 
     let mut resolved_paths: HashMap<String, Option<PathBuf>> = HashMap::new();
-    let mut parsed_graphs: HashMap<PathBuf, Vec<CallNode>> = HashMap::new();
+    let mut parsed_graphs: HashMap<PathBuf, Option<SessionGraph>> = HashMap::new();
 
     for prompt in prompts {
         for call in &mut prompt.calls {
@@ -168,10 +168,13 @@ fn attach_subagent_nodes(source: SessionSource, parent_path: &Path, prompts: &mu
             };
 
             call.subagent_session_path = Some(path.display().to_string());
-            let nodes = parsed_graphs
+            let graph = parsed_graphs
                 .entry(path.clone())
-                .or_insert_with(|| subagent_inspection_nodes_for_path(&path, &call.id));
-            call.subagent_nodes = nodes.clone();
+                .or_insert_with(|| subagent_graph_for_path(&path));
+            let Some(graph) = graph else {
+                continue;
+            };
+            call.subagent_nodes = subagent_inspection_nodes(&call.id, graph);
         }
     }
 }
@@ -180,16 +183,9 @@ fn is_subagent_call(call: &CallNode) -> bool {
     call.name == "spawn_agent" || call.name == "subagent"
 }
 
-fn subagent_inspection_nodes_for_path(path: &Path, parent_call_id: &str) -> Vec<CallNode> {
-    let Ok((byte_length, modified)) = session_file_state(path) else {
-        return Vec::new();
-    };
-    let Ok(graph) =
-        parse_session_jsonl_inner(SessionSource::Codex, path, byte_length, modified, false)
-    else {
-        return Vec::new();
-    };
-    subagent_inspection_nodes(parent_call_id, &graph)
+fn subagent_graph_for_path(path: &Path) -> Option<SessionGraph> {
+    let (byte_length, modified) = session_file_state(path).ok()?;
+    parse_session_jsonl_inner(SessionSource::Codex, path, byte_length, modified, false).ok()
 }
 
 fn subagent_inspection_nodes(parent_call_id: &str, graph: &SessionGraph) -> Vec<CallNode> {

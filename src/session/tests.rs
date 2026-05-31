@@ -62,7 +62,14 @@ fn codex_message_line(role: &str, text: &str) -> String {
 }
 
 fn subagent_notification_text() -> String {
-    "<subagent_notification>\n{\"agent_path\":\"agent-123\",\"status\":{\"completed\":\"Findings:\\n\\n- Reuse existing helper.\"}}\n</subagent_notification>".to_owned()
+    subagent_notification_text_for_agent("agent-123", "Findings:\n\n- Reuse existing helper.")
+}
+
+fn subagent_notification_text_for_agent(agent_id: &str, completed: &str) -> String {
+    format!(
+        "<subagent_notification>\n{}\n</subagent_notification>",
+        json!({ "agent_path": agent_id, "status": { "completed": completed } })
+    )
 }
 
 fn codex_task_started_line(turn_id: &str) -> String {
@@ -598,6 +605,100 @@ fn attaches_subagent_session_nodes_to_spawn_call() {
             .iter()
             .any(|node| node.name == "shell_command")
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn repeated_subagent_parent_calls_get_distinct_child_node_ids() {
+    let root = temp_jsonl_path("subagent-repeated-parent").with_extension("");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let agent_id = "019e1704-repeat-agent";
+    let parent_path = root.join("rollout-main.jsonl");
+    let child_path = root.join(format!("rollout-2026-05-11T07-30-37-{agent_id}.jsonl"));
+    let subagent_notification = subagent_notification_text_for_agent(agent_id, "Done.");
+    let parent = [
+        codex_message_line("user", "use subagents"),
+        json!({
+            "timestamp": "2026-05-10T16:04:03.287Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "spawn_agent",
+                "call_id": "spawn_agent_1",
+                "arguments": { "agent_type": "explorer" }
+            }
+        })
+        .to_string(),
+        json!({
+            "timestamp": "2026-05-10T16:04:04.287Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call_output",
+                "call_id": "spawn_agent_1",
+                "output": { "agent_id": agent_id, "nickname": "Curie" }
+            }
+        })
+        .to_string(),
+        codex_message_line("user", &subagent_notification),
+    ]
+    .join("\n");
+    let child = [
+        codex_message_line("user", "inspect child graph"),
+        json!({
+            "timestamp": "2026-05-10T16:04:05.287Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "shell_command",
+                "call_id": "child_shell_1",
+                "arguments": { "command": "rg TODO" }
+            }
+        })
+        .to_string(),
+    ]
+    .join("\n");
+    fs::write(&parent_path, parent + "\n").unwrap();
+    fs::write(&child_path, child + "\n").unwrap();
+
+    let graph = parse_graph_for_file(SessionSource::Codex, &parent_path).unwrap();
+
+    let launch = graph.prompts[0]
+        .calls
+        .iter()
+        .find(|call| call.id == "spawn_agent_1")
+        .unwrap();
+    let result = graph.prompts[0]
+        .calls
+        .iter()
+        .find(|call| call.name == "subagent")
+        .unwrap();
+    let result_prefix = format!("{}:", result.id);
+    let launch_ids = launch
+        .subagent_nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect::<Vec<_>>();
+    let result_ids = result
+        .subagent_nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(
+        launch_ids
+            .iter()
+            .any(|id| id.starts_with("spawn_agent_1:child:child_shell_1"))
+    );
+    assert!(
+        result_ids
+            .iter()
+            .any(|id| id.starts_with(&format!("{result_prefix}child:child_shell_1")))
+    );
+    assert!(launch_ids.iter().all(|id| id.starts_with("spawn_agent_1:")));
+    assert!(result_ids.iter().all(|id| id.starts_with(&result_prefix)));
+    assert!(launch_ids.iter().all(|id| !result_ids.contains(id)));
 
     fs::remove_dir_all(root).unwrap();
 }
