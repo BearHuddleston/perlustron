@@ -104,6 +104,17 @@ Every platform archive should publish `ARCHIVE_NAME.manifest.json` beside the ar
 
 Use the `.sha256` file for quick download verification and the manifest when auditing exactly which docs/assets/checksums were included in a release. The workflow also extracts each archive and checks required docs/assets before starting the UI smoke test so the manifest is not the only packaging guard.
 
+## Release Artifact Verification Script
+
+Maintainers can independently verify a published archive, checksum, manifest, extracted bundle contents, and runnable local UI smoke with the checked-in verifier:
+
+```bash
+node scripts/verify-release-artifacts.mjs v0.2.0 linux-x86_64
+node scripts/verify-release-artifacts.mjs --repo BearHuddleston/perlustron --tag v0.2.0 --target macos-aarch64 --skip-run
+```
+
+The verifier downloads `ARCHIVE`, `ARCHIVE.sha256`, and `ARCHIVE.manifest.json` from the selected GitHub Release, checks the archive hash against both the checksum file and manifest, validates the manifest's required package/privacy/signing fields, rejects unsafe archive paths and link/device entries before extraction, extracts the archive, and verifies required bundled files against the manifest inventory. When the selected target matches the host platform, it also runs `perlustron --version`, launches `perlustron --demo --no-open` on loopback, and fetches `/` plus `/app.js`. Use `--skip-run` for cross-platform archive audits where the downloaded binary cannot execute on the current host. The script uses Node's built-in `fetch` plus the system `tar` command for `.tar.gz` assets and `python3`'s standard `zipfile` module for `.zip` assets.
+
 ## Runtime Configuration
 
 Perlustron binds to loopback by default and serves the embedded UI from the binary:
