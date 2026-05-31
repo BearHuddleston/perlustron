@@ -1,6 +1,6 @@
 # Release
 
-Perlustron releases should be boring to install, usable offline, and honest about signing status. The current public version line is `v0.1.0`; release notes live in [v0.1.0 release notes](release-notes-v0.1.0.md).
+Perlustron releases should be boring to install, usable offline, and honest about signing status. The current public version line is `v0.2.0`; release notes live in [v0.2.0 release notes](release-notes-v0.2.0.md). Historical v0.1.0 notes remain in [v0.1.0 release notes](release-notes-v0.1.0.md).
 
 ## Release Safety Gates
 
@@ -28,13 +28,13 @@ target\release\perlustron.exe --demo
 
 The Rust binary embeds the static UI and demo fixtures. Keep `static/app.js`, `static/styles.css`, `static/index.html`, and `docs/assets/perlustron-demo.png` in sync before tagging.
 
-## Download v0.1.0 Release
+## Download v0.2.0 Release
 
 ```bash
-gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-linux-x86_64.tar.gz*'
-gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-macos-aarch64.tar.gz*'
-gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-macos-x86_64.tar.gz*'
-gh release download --repo BearHuddleston/perlustron --pattern 'perlustron-windows-x86_64.zip*'
+gh release download v0.2.0 --repo BearHuddleston/perlustron --pattern 'perlustron-linux-x86_64.tar.gz*'
+gh release download v0.2.0 --repo BearHuddleston/perlustron --pattern 'perlustron-macos-aarch64.tar.gz*'
+gh release download v0.2.0 --repo BearHuddleston/perlustron --pattern 'perlustron-macos-x86_64.tar.gz*'
+gh release download v0.2.0 --repo BearHuddleston/perlustron --pattern 'perlustron-windows-x86_64.zip*'
 ```
 
 Verify checksums before running:
@@ -53,11 +53,11 @@ Get-Content .\perlustron-windows-x86_64.zip.sha256
 
 ## Tag Release
 
-Run the tag push only after the release-prep commit is reviewed, approved, and on `main`, and only after confirming the tag does not already exist. If `v0.1.0` already exists, do not delete, force-update, or re-push it without explicit human approval:
+Run the tag push only after the release-prep commit is reviewed, approved, and on `main`, and only after confirming the tag does not already exist. If `v0.2.0` already exists, do not delete, force-update, or re-push it without explicit human approval:
 
 ```bash
-git tag -a v0.1.0 -m "Perlustron v0.1.0"
-git push origin v0.1.0
+git tag -a v0.2.0 -m "Perlustron v0.2.0"
+git push origin v0.2.0
 ```
 
 The release workflow builds platform archives for Windows, Linux, macOS x86_64, and macOS arm64 where GitHub runners support them.
@@ -210,7 +210,7 @@ The release workflow signs and submits macOS binaries for notarization when thes
 
 The certificate should be a Developer ID Application certificate exported as a password-protected `.p12` and base64-encoded for the secret.
 
-The published v0.1.0 macOS archives are unsigned developer-preview artifacts because these secrets were not configured for the release run. Normal CI and unsigned release builds do not require these secrets. If signing secrets are absent in a future release run, macOS archives remain unsigned developer-preview artifacts. Technical users may need to open the binary from Terminal or remove quarantine:
+The published v0.1.0 macOS archives were unsigned developer-preview artifacts because these secrets were not configured for that release run. For v0.2.0 and later, treat the per-archive manifest and workflow logs as the source of truth: if signing secrets are absent, macOS archives remain unsigned developer-preview artifacts. Technical users may need to open an unsigned binary from Terminal or remove quarantine:
 
 ```bash
 xattr -dr com.apple.quarantine perlustron
