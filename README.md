@@ -109,7 +109,7 @@ perlustron --demo
 
 Release archives include the binary, local UI assets embedded in the binary, bundled sanitized demo fixtures, licenses, `SECURITY.md`, and docs. Matching `.sha256` and `.manifest.json` assets support checksum verification and per-file package audits. Normal release use does not require Rust, Node, npm, CDN access, or network access.
 
-The v0.1.0 macOS artifacts are unsigned developer-preview archives. Future releases can be signed and submitted for notarization when Apple Developer signing secrets are configured; signed/notarized status is recorded in the release manifest for each macOS archive. Unsigned archives may require:
+macOS artifacts are signed and notarized only when the release manifest says so. If Apple Developer signing secrets are not configured for the release run, macOS archives are unsigned developer-preview artifacts; signed/notarized status is recorded in the release manifest for each macOS archive. Unsigned archives may require:
 
 ```bash
 xattr -dr com.apple.quarantine perlustron
@@ -192,6 +192,7 @@ perlustron bench --generate 10000
 - [Architecture](docs/architecture.md)
 - [Fixtures](docs/fixtures.md)
 - [Release](docs/release.md)
+- [v0.2.0 release notes](docs/release-notes-v0.2.0.md)
 - [v0.1.0 release notes](docs/release-notes-v0.1.0.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Contributing](docs/contributing.md)

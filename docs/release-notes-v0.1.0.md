@@ -1,6 +1,6 @@
 # v0.1.0 - Local Session Forensics
 
-Perlustron v0.1.0 is the active public release line for local-first Codex and Claude Code session forensics.
+Perlustron v0.1.0 was the initial public release line for local-first Codex and Claude Code session forensics.
 
 ## Summary
 
