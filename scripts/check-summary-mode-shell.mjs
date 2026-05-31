@@ -281,7 +281,7 @@ expect(/grid-template-rows:\s*44px minmax\(0,\s*1fr\)/.test(stage), "Stage shoul
 expect(/cursor:\s*grab/.test(mapCanvas) && /touch-action:\s*none/.test(mapCanvas), "Map canvas should expose direct grab-pan affordance and avoid browser gesture interception.");
 expect(styles.includes("#space.grabbing"), "Map canvas should expose a grabbing cursor during drag-pan.");
 expect(/position:\s*absolute/.test(mapLiveHud) && /bottom:\s*16px/.test(mapLiveHud), "Map LIVE HUD should sit inside the map viewport.");
-expect(/display:\s*flex/.test(mapLiveHud) && /transform:\s*translateX\(-50%\)/.test(mapLiveHud), "Map LIVE HUD should align the LIVE chip and metrics together.");
+expect(/display:\s*grid/.test(mapLiveHud) && /grid-template-columns:\s*auto minmax\(0,\s*1fr\)/.test(mapLiveHud) && /transform:\s*translateX\(-50%\)/.test(mapLiveHud), "Map LIVE HUD should align the LIVE chip, metrics, and filter status together.");
 expect(/overflow-x:\s*auto/.test(mapMetrics) && /scrollbar-width:\s*none/.test(mapMetrics), "In-map metric filters should stay compact without exposing a header scrollbar.");
 expect(
   html.includes('data-node-role="prompt"') && html.includes('data-node-role="patch"') && html.includes('data-node-role="browser"'),

@@ -75,6 +75,24 @@ const NODE_ROLE_METRICS = {
   coordination: "coordination",
   message: "messages",
 } as const satisfies Record<NodeRole, MapRoleMetric>;
+const MAP_ROLE_LABELS = {
+  prompt: "Prompts",
+  local: "Local calls",
+  patch: "Patch calls",
+  browser: "Browser calls",
+  web: "Web calls",
+  coordination: "Coordination calls",
+  message: "Assistant messages",
+} as const satisfies Record<NodeRole, string>;
+const MAP_METRIC_LABELS = {
+  error: "Errors",
+  long: "Long calls",
+  file: "Files",
+  diff: "Diffs",
+  artifact: "Artifacts",
+  compaction: "Compactions",
+  skill: "Skills",
+} as const satisfies Record<Metric, string>;
 const LONG_CALL_DURATION_MS = 30_000;
 const RAW_TEXT_LINE_HEIGHT = 18;
 const RAW_TEXT_FULL_RENDER_LINE_LIMIT = 3_000;
@@ -1063,6 +1081,8 @@ const metricDiffs = queryRequired<HTMLElement>("#metric-diffs");
 const metricArtifacts = queryRequired<HTMLElement>("#metric-artifacts");
 const metricCompactions = queryRequired<HTMLElement>("#metric-compactions");
 const metricSkills = queryRequired<HTMLElement>("#metric-skills");
+const mapLiveHud = queryRequired<HTMLElement>(".map-live-hud");
+const mapFilterStatus = queryRequired<HTMLElement>("#map-filter-status");
 const nodeRoleMetricElements: Record<NodeRole, HTMLElement> = {
   prompt: metricPrompts,
   local: metricLocal,
@@ -2120,6 +2140,7 @@ function updateGraphChrome(): void {
   metricArtifacts.textContent = formatNumber(mapMetrics.artifact);
   metricCompactions.textContent = formatNumber(mapMetrics.compaction);
   metricSkills.textContent = formatNumber(mapMetrics.skill);
+  syncMapFilterControls(mapMetrics);
   renderContextPressure(current.tokenTelemetry);
   renderMetadataList(metadataList, current.metadata);
   renderActiveModePanel();
@@ -8630,6 +8651,10 @@ function selectNodeRole(role: NodeRole): void {
 }
 
 function selectMapFilter(filter: MapFilter): void {
+  if (!mapFilterMatches(activeMapFilter, filter) && mapFilterCount(filter) <= 0) {
+    syncMapFilterControls();
+    return;
+  }
   activeMapFilter = mapFilterMatches(activeMapFilter, filter) ? null : filter;
   refreshMapFilterView();
 }
@@ -8645,7 +8670,7 @@ function mapFilterMatches(left: MapFilter | null, right: MapFilter): boolean {
 }
 
 function refreshMapFilterView(): void {
-  syncMapFilterButtons();
+  syncMapFilterControls();
   if (mode === "inspect") {
     mode = "overview";
     activePromptId = null;
@@ -8658,15 +8683,88 @@ function refreshMapFilterView(): void {
   syncInstanceColors();
 }
 
-function syncMapFilterButtons(): void {
-  setActiveButton(
-    metricButtons,
-    (button) => activeMapFilter?.kind === "metric" && button.dataset.metric === activeMapFilter.metric
-  );
-  setActiveButton(
-    nodeRoleButtons,
-    (button) => activeMapFilter?.kind === "role" && button.dataset.nodeRole === activeMapFilter.role
-  );
+function syncMapFilterControls(mapMetrics: MapMetricCounts = collectMapMetricCounts()): void {
+  if (activeMapFilter && mapFilterCount(activeMapFilter, mapMetrics) <= 0) {
+    activeMapFilter = null;
+  }
+
+  const filterActive = Boolean(activeMapFilter);
+  sceneFrame.classList.toggle("map-filter-active", filterActive);
+  mapLiveHud.classList.toggle("filter-active", filterActive);
+  syncMapFilterButtons(mapMetrics);
+
+  if (!activeMapFilter) {
+    const totalVisibleNodes = nodes.filter(nodeVisibleInCurrentMode).length;
+    mapFilterStatus.textContent = `${formatNumber(totalVisibleNodes)} map nodes shown. Click a chip to isolate a role or metric.`;
+    return;
+  }
+
+  const label = mapFilterLabel(activeMapFilter);
+  const count = mapFilterCount(activeMapFilter, mapMetrics);
+  mapFilterStatus.textContent = `Filtering to ${label}: ${formatNumber(count)} matching nodes shown; other map nodes hidden. Click ${label} again to clear.`;
+}
+
+function syncMapFilterButtons(mapMetrics: MapMetricCounts = collectMapMetricCounts()): void {
+  [...metricButtons, ...nodeRoleButtons].forEach((button) => {
+    const filter = mapFilterForButton(button);
+    if (!filter) {
+      return;
+    }
+    const active = mapFilterMatches(activeMapFilter, filter);
+    const count = mapFilterButtonCount(button, mapMetrics);
+    const label = mapFilterLabel(filter);
+    const countLabel = `${formatNumber(count)} matching ${count === 1 ? "node" : "nodes"}`;
+    button.classList.toggle("active", active);
+    button.classList.toggle("map-filter-empty", count <= 0);
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = count <= 0;
+    button.title = count <= 0
+      ? `No ${label.toLowerCase()} in this map`
+      : active
+        ? `Clear ${label} map filter (${countLabel})`
+        : `Show only ${label} (${countLabel})`;
+    button.setAttribute(
+      "aria-label",
+      count <= 0
+        ? `No ${label} in this map`
+        : active
+          ? `Clear ${label} filter; ${countLabel} currently shown`
+          : `Filter map to ${label}; ${countLabel}`
+    );
+  });
+}
+
+function mapFilterButtonCount(button: HTMLButtonElement, mapMetrics: MapMetricCounts = collectMapMetricCounts()): number {
+  const filter = mapFilterForButton(button);
+  return filter ? mapFilterCount(filter, mapMetrics) : 0;
+}
+
+function mapFilterForButton(button: HTMLButtonElement): MapFilter | null {
+  const metric = button.dataset.metric;
+  if (isMetricValue(metric)) {
+    return { kind: "metric", metric };
+  }
+  const role = button.dataset.nodeRole;
+  if (isNodeRoleValue(role)) {
+    return { kind: "role", role };
+  }
+  return null;
+}
+
+function isMetricValue(value: string | undefined): value is Metric {
+  return value !== undefined && (METRICS as readonly string[]).includes(value);
+}
+
+function isNodeRoleValue(value: string | undefined): value is NodeRole {
+  return value !== undefined && (NODE_ROLES as readonly string[]).includes(value);
+}
+
+function mapFilterCount(filter: MapFilter, mapMetrics: MapMetricCounts = collectMapMetricCounts()): number {
+  return filter.kind === "metric" ? mapMetrics[filter.metric] : mapMetrics[NODE_ROLE_METRICS[filter.role]];
+}
+
+function mapFilterLabel(filter: MapFilter): string {
+  return filter.kind === "metric" ? MAP_METRIC_LABELS[filter.metric] : MAP_ROLE_LABELS[filter.role];
 }
 
 function nodeMatchesActiveMapFilter(node: SceneNode): boolean {

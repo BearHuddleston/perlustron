@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=278387907177541" />
+    <link rel="stylesheet" href="/styles.css?v=164057227299430" />
   </head>
   <body>
     <main id="app">
@@ -180,7 +180,7 @@
             <button id="inspect-exit" class="inspect-exit" type="button" data-view-action="overview" title="Exit inspection">Exit inspection</button>
             <div class="map-live-hud" aria-label="Map status">
               <div class="live-chip"><span></span>LIVE</div>
-              <div class="map-metrics" aria-label="Metric filters">
+              <div class="map-metrics" aria-label="Metric filters" aria-describedby="map-filter-status">
                 <button class="prompt" type="button" data-node-role="prompt"><span class="metric-dot"></span>Prompts <b id="metric-prompts">0</b></button>
                 <button class="local" type="button" data-node-role="local"><span class="metric-dot"></span>Local <b id="metric-local">0</b></button>
                 <button class="patch" type="button" data-node-role="patch"><span class="metric-dot"></span>Patch <b id="metric-patch">0</b></button>
@@ -196,6 +196,9 @@
                 <button class="compaction" type="button" data-metric="compaction"><span class="metric-dot"></span>Compactions <b id="metric-compactions">0</b></button>
                 <button class="skill" type="button" data-metric="skill"><span class="metric-dot"></span>Skills <b id="metric-skills">0</b></button>
               </div>
+              <div id="map-filter-status" class="map-filter-status" role="status" aria-live="polite">
+                Showing all map nodes. Click a chip to isolate a role or metric.
+              </div>
             </div>
           </div>
         </section>
@@ -207,6 +210,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v278387907177541.js"></script>
+    <script type="module" src="/app-v164057227299430.js"></script>
   </body>
 </html>
