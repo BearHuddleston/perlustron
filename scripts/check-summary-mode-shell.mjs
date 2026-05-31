@@ -134,7 +134,7 @@ expect(summarySurface.includes('modeCard("Forensic Verdict"'), "Forensic Verdict
 expect(summarySurface.includes("function forensicVerdictOutcome"), "Forensic Verdict should summarize the run outcome explicitly.");
 expect(summarySurface.includes("function forensicVerdictFirstCriticalEvent"), "Forensic Verdict should call out the first critical or suspicious event.");
 expect(summarySurface.includes("Highest-confidence finding"), "Forensic Verdict should name the highest-priority finding before the detail queue.");
-expect(summarySurface.includes('modeButton("Inspect Highest-Priority Finding"'), "Forensic Verdict should expose one obvious primary CTA for the top finding.");
+expect(summarySurface.includes('modeButton("Start Inspect-First Review"'), "Forensic Verdict should expose one obvious primary CTA for the top finding.");
 const confidenceRankBlock = summarySurface.match(/function insightConfidenceRank[\s\S]*?\n}\n\nfunction insightSeverityRank/)?.[0] ?? "";
 expect(/case "direct":[\s\S]*return 0;/.test(confidenceRankBlock), "Forensic Verdict confidence ranking should treat direct evidence as the highest-confidence source.");
 expect(/case "strong heuristic":[\s\S]*return 1;/.test(confidenceRankBlock), "Forensic Verdict confidence ranking should rank strong heuristic evidence ahead of weak heuristics.");

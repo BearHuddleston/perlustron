@@ -65,11 +65,13 @@ interface FocusEventByLineOptions<Row extends EvidenceModeEventRow> {
   openSelectedEventMode(mode: EvidenceAppMode): void;
   selectAppMode(mode: EvidenceAppMode): void;
   setRawModePayload(payload: unknown): void;
+  setFocusedEvidenceLine(lineNumber: number | null | undefined): void;
   showEvidenceFallback(title: string, payload: unknown, detail: string): void;
 }
 
 export function focusEvidenceByLine<Row extends EvidenceModeEventRow>(options: FocusEventByLineOptions<Row>): void {
   const destination = options.destination ?? "raw";
+  options.setFocusedEvidenceLine(options.lineNumber ?? null);
   if (options.lineNumber) {
     const row = options.modeTimelineRows().find((candidate) => candidate.lineNumber === options.lineNumber);
     if (row) {

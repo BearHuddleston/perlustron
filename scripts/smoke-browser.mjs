@@ -318,7 +318,7 @@ async function assertSummaryDeepLink(page, server) {
   assert(summary.verdictText.includes("First critical event"), "Forensic Verdict should expose the first critical or suspicious event");
   assert(summary.verdictText.includes("Highest-confidence finding"), "Forensic Verdict should name the top finding");
   assert(summary.verdictText.includes("Safe-share state"), "Forensic Verdict should expose the safe-share/privacy state");
-  assert(summary.verdictCta === "Inspect Highest-Priority Finding", "Forensic Verdict should expose one obvious primary CTA");
+  assert(summary.verdictCta === "Start Inspect-First Review", "Forensic Verdict should expose one obvious primary CTA");
   assert(summary.text.includes("API token required"), "Summary should expose token requirement status only");
   assert(summary.text.includes("Raw logs"), "Summary should expose raw log shareability status");
   assert(summary.visibleUrl.includes("mode=summary"), "Summary deep link should preserve mode=summary in the visible URL");
@@ -424,7 +424,7 @@ async function assertSummaryOpenEvidenceRoutesToRaw(page, server) {
   });
   assert(evidence.activeMode === "raw", "Raw JSON should route to the Raw evidence surface");
   assert(evidence.panelHidden === false, "Raw JSON should show a visible evidence panel");
-  assert(evidence.panelSummary === "Selected event", "Raw JSON should preserve the selected event in Raw mode");
+  assert(evidence.panelSummary === "Raw audit - selected event", "Raw JSON should preserve the selected event in Raw mode with a raw audit warning");
   assert(evidence.virtualRawViewport, "Raw JSON should use the virtualized Raw text viewer");
   assert(evidence.panelJsonObject, "Raw JSON should expose parseable selected event JSON");
   assert(!evidence.rawJsonPreviewExists, "Removed Raw JSON preview should stay out of the DOM");

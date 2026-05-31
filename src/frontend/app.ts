@@ -17,7 +17,7 @@ import {
 } from "./utils/format";
 import { kindColor } from "./palette";
 import { readableRedactionSegments, readableRedactionSummary, type RedactionDisplaySegment } from "./redaction_display";
-import { copySafeReferenceText, copySafeShareSummaryText, safeReferenceSummary } from "./share_safe";
+import { copySafeReferenceText, copySafeShareSummaryText, redactionSafeClipboardText, safeReferenceSummary } from "./share_safe";
 import {
   eventContextHeaderTitle,
   eventContextKindLabel,
@@ -1079,6 +1079,8 @@ const liveToggle = queryRequired<HTMLButtonElement>("#live-toggle");
 const liveState = queryRequired<HTMLElement>("#live-state");
 const liveCopy = queryRequired<HTMLElement>("#live-copy");
 const searchInput = queryRequired<HTMLInputElement>("#search-input");
+const searchStatus = queryRequired<HTMLElement>("#search-status");
+const copyFeedback = queryRequired<HTMLElement>("#copy-feedback");
 const modePanel = queryRequired<HTMLElement>("#mode-panel");
 const modePanelKicker = queryRequired<HTMLElement>("#mode-panel-kicker");
 const modePanelTitle = queryRequired<HTMLElement>("#mode-panel-title");
@@ -1310,6 +1312,8 @@ let unknownsReportPromise: Promise<UnknownsReport | null> | null = null;
 let activeMapFilter: MapFilter | null = null;
 let searchTerm = "";
 let rawPayload: unknown = null;
+let focusedEvidenceLine: number | null = null;
+let copyFeedbackTimer: TimerId | null = null;
 const virtualScrollTopByMode: Partial<Record<AppMode, number>> = {};
 const transcriptTextMeasureCache = new Map<string, TranscriptTextMeasureCacheEntry>();
 let isTailing = true;
@@ -1737,6 +1741,7 @@ function resetSessionViewState(): void {
   selectedNodeId = null;
   activePromptId = null;
   rawPayload = null;
+  focusedEvidenceLine = null;
   Object.keys(virtualScrollTopByMode).forEach((key) => {
     delete virtualScrollTopByMode[key as AppMode];
   });
@@ -5157,6 +5162,13 @@ function setRawModePayload(payload: unknown): void {
   }
 }
 
+function setFocusedEvidenceLine(lineNumber: number | null | undefined): void {
+  focusedEvidenceLine = lineNumber ?? null;
+  if (activeAppMode === "timeline" && graph) {
+    renderTimelineModePanel();
+  }
+}
+
 function clearRawModePayload(): void {
   rawPayload = null;
   if (activeAppMode === "raw" && graph) {
@@ -5643,7 +5655,8 @@ function syncInstanceColors(): void {
     if (!mesh) {
       return;
     }
-    mesh.userData.nodes.forEach((node, index) => {
+    const bucketNodes = mesh.userData.nodes as SceneNode[];
+    bucketNodes.forEach((node: SceneNode, index: number) => {
       mesh.setColorAt(index, colorForNode(node, node.id === selectedNodeId));
     });
     if (mesh.instanceColor) {
@@ -5944,7 +5957,7 @@ async function copySelectedEventRef(): Promise<void> {
 function copySelectedSafeReference(): void {
   const referenceText = selectedEventReferenceText();
   if (!referenceText) {
-    openSyntheticEventContext("COPY", "Select an event first", "Open Map or Timeline and select an event before copying a safe reference.");
+    showCopyFeedback("Select an event first", "Open Map or Timeline and select an event before copying a safe reference.", "error");
     return;
   }
   copyText(referenceText, "Copy-safe reference copied");
@@ -6442,14 +6455,26 @@ function renderTimelineModePanel(): void {
   const rows = modeTimelineRows();
   populateTimelineFilterOptions(rows);
   const filtered = rows.filter(modeRowMatchesFilters);
-  modePanelSummary.textContent = `${filtered.length} of ${rows.length} events`;
+  updateSearchStatus(rows.length, filtered.length);
+  const evidenceSuffix = focusedEvidenceLine ? ` - evidence target line ${focusedEvidenceLine}` : "";
+  modePanelSummary.textContent = `${filtered.length} of ${rows.length} events${evidenceSuffix}`;
   if (!filtered.length) {
     modePanelContent.replaceChildren(modeEmpty("No timeline events match the current filters."));
     return;
   }
+  const header = document.createElement("div");
+  header.className = "mode-panel-header-stack";
+  if (focusedEvidenceLine) {
+    const notice = modeCard("Evidence Target", [
+      `Opened from Summary or Insights. Line ${focusedEvidenceLine} is highlighted below when it is visible in the filtered Timeline.`,
+    ]);
+    notice.classList.add("timeline-evidence-notice");
+    header.append(notice);
+  }
   const actions = document.createElement("div");
   actions.className = "mode-actions";
   actions.append(modeButton("Copy Safe Reference", () => copySelectedSafeReference()));
+  header.append(actions);
   renderVirtualModePanel(
     renderVirtualList({
       ariaLabel: "Timeline events",
@@ -6458,7 +6483,7 @@ function renderTimelineModePanel(): void {
       estimateHeight: estimateTimelineRowHeight,
       renderItem: (row) => renderModeRow(row),
     }),
-    actions
+    header
   );
 }
 
@@ -6620,19 +6645,31 @@ function modeRowMatchesFilters(row: ModeEventRow): boolean {
   if (modeFilterRedacted.checked && !row.flags.includes("redacted")) {
     return false;
   }
-  if (searchTerm) {
-    return [row.role, row.eventType, row.toolName, row.filePath, row.title, row.detail, row.flags.join(" ")]
-      .join(" ")
-      .toLowerCase()
-      .includes(searchTerm);
+  return modeRowMatchesSearchTerm(row);
+}
+
+function modeRowMatchesSearchTerm(row: ModeEventRow): boolean {
+  if (!searchTerm) {
+    return true;
   }
-  return true;
+  return [row.role, row.eventType, row.toolName, row.filePath, row.title, row.detail, row.flags.join(" ")]
+    .join(" ")
+    .toLowerCase()
+    .includes(searchTerm);
 }
 
 function renderModeRow(row: ModeEventRow): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `mode-row ${row.node?.id === selectedNodeId ? "active" : ""} ${row.flags.includes("skill") ? "skill-row" : ""}`;
+  const isSelected = row.node?.id === selectedNodeId;
+  const isEvidenceTarget = focusedEvidenceLine !== null && row.lineNumber === focusedEvidenceLine;
+  button.className = `mode-row ${isSelected ? "active" : ""} ${isEvidenceTarget ? "evidence-target" : ""} ${row.flags.includes("skill") ? "skill-row" : ""}`;
+  if (isSelected || isEvidenceTarget) {
+    button.setAttribute("aria-current", isEvidenceTarget ? "location" : "true");
+  }
+  if (isEvidenceTarget) {
+    button.title = "Evidence target opened from Summary or Insights.";
+  }
   const line = document.createElement("code");
   line.textContent = [`L${row.lineNumber}`, formatModeTimestamp(row.timestamp)].filter(Boolean).join("\n");
   const kind = document.createElement("small");
@@ -7124,28 +7161,59 @@ function renderDiffModePanel(): void {
 
 function renderRawModePanel(): void {
   const current = currentGraph();
-  modePanelSummary.textContent = selectedNodeId ? "Selected event" : "Session graph";
+  const rawAuditTarget = selectedNodeId ? "selected event" : "session graph";
+  modePanelSummary.textContent = ["Raw audit", rawAuditTarget].join(" - ");
   const payload = rawPayload ?? (selectedNodeId ? nodeById.get(selectedNodeId)?.source : current);
-  renderRawPayload(payload ?? current.totals);
+  const header = document.createElement("div");
+  header.className = "mode-panel-header-stack";
+  const warning = modeCard("Raw Privacy Warning", [
+    "Raw audit JSON may include prompts, private paths, tool output, image metadata, and credentials that were intentionally hidden from safe-share summaries.",
+    "Prefer Copy Safe Reference or Export safe-share reports unless you are doing local forensic review.",
+  ]);
+  warning.classList.add("raw-privacy-notice");
+  const actions = document.createElement("div");
+  actions.className = "mode-actions";
+  actions.append(
+    modeButton("Copy Safe Reference", () => copySelectedSafeReference()),
+    modeButton("Copy Safe Share Summary", () => copyText(copySafeShareSummaryForGraph(current), "Safe-share summary copied"))
+  );
+  header.append(warning, actions);
+  renderRawPayload(payload ?? current.totals, header);
 }
 
 function renderExportModePanel(): void {
   const current = currentGraph();
-  modePanelSummary.textContent = "Redacted reports";
+  modePanelSummary.textContent = "Safe-share exports";
+  const shell = document.createElement("div");
+  shell.className = "mode-panel-header-stack";
   const grid = document.createElement("div");
   grid.className = "mode-card-grid";
   grid.append(
-    modeCard("Reports", [
+    modeCard("Safe Share Workflow", [
+      "Start with Copy Safe Share Summary for a compact shareable status update.",
+      "Use redacted HTML/Markdown/JSON exports for review artifacts; keep raw logs local unless a human explicitly approves sharing them.",
+      "Before forwarding externally, scan the generated artifact for private paths, prompts, image payloads, and secrets.",
+    ]),
+    modeCard("Redacted Report Commands", [
       `perlustron export ${current.sessionPath} --format html --redacted -o report.html`,
       `perlustron export ${current.sessionPath} --format markdown --redacted -o report.md`,
-      `perlustron export ${current.sessionPath} --format json -o normalized-trace.json`,
+      `perlustron export ${current.sessionPath} --format json --redacted -o normalized-trace-redacted.json`,
     ]),
     modeCard("Schema Drift", [
       `perlustron unknowns ${current.sessionPath} --redacted -o unknowns-redacted.json`,
       `perlustron fixture-report ${current.sessionPath} --redacted -o fixture-report.md`,
     ])
   );
-  modePanelContent.replaceChildren(grid);
+  const actions = document.createElement("div");
+  actions.className = "mode-actions";
+  actions.append(
+    modeButton("Copy Safe Share Summary", () => copyText(copySafeShareSummaryForGraph(current), "Safe-share summary copied")),
+    modeButton("Export Unknowns JSON", () => exportUnknownsJson()),
+    modeButton("Copy Schema Issue", () => copySchemaDriftIssueBody()),
+    modeButton("Export Fixture Report", () => exportFixtureReportMarkdown())
+  );
+  shell.append(actions, grid);
+  modePanelContent.replaceChildren(shell);
 }
 
 function renderSettingsModePanel(): void {
@@ -7712,6 +7780,7 @@ function focusEventByLine(lineNumber: number | null | undefined, title: string, 
     openSelectedEventMode,
     selectAppMode,
     setRawModePayload,
+    setFocusedEvidenceLine,
     showEvidenceFallback,
   });
 }
@@ -7868,10 +7937,36 @@ function downloadText(filename: string, text: string, type: string): void {
 }
 
 function copyText(text: string, title = "Copied"): void {
+  const preview = previewClipboardText(text);
   void navigator.clipboard
     .writeText(text)
-    .then(() => openSyntheticEventContext("COPY", title, text))
-    .catch((error) => openSyntheticEventContext("COPY", "Copy failed", errorMessage(error)));
+    .then(() => showCopyFeedback(title, preview))
+    .catch((error) => showCopyFeedback("Copy failed", errorMessage(error), "error"));
+}
+
+function previewClipboardText(text: string): string {
+  const preview = redactionSafeClipboardText(text).replace(/\s+/g, " ").trim();
+  if (!preview) {
+    return "Clipboard payload was empty.";
+  }
+  return preview.length > 140 ? `${preview.slice(0, 137).trimEnd()}...` : preview;
+}
+
+function showCopyFeedback(title: string, detail: string, tone: "success" | "error" = "success"): void {
+  if (copyFeedbackTimer) {
+    window.clearTimeout(copyFeedbackTimer);
+  }
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const body = document.createElement("small");
+  body.textContent = detail;
+  copyFeedback.classList.toggle("error", tone === "error");
+  copyFeedback.replaceChildren(heading, body);
+  copyFeedback.hidden = false;
+  copyFeedbackTimer = window.setTimeout(() => {
+    copyFeedback.hidden = true;
+    copyFeedbackTimer = null;
+  }, 3600);
 }
 
 function errorishText(text: string): boolean {
@@ -7924,9 +8019,36 @@ function selectAppMode(nextMode: AppMode): void {
 }
 
 function renderSearchAwareModePanel(): void {
+  updateSearchStatus();
   if (activeAppMode !== "transcript") {
     renderActiveModePanel();
   }
+}
+
+function updateSearchStatus(totalEvents?: number, matchingEvents?: number): void {
+  searchStatus.classList.remove("has-results", "no-results");
+  if (!searchTerm) {
+    searchStatus.textContent = "Search filters Timeline evidence; type to see matching events.";
+    return;
+  }
+  if (!graph) {
+    searchStatus.textContent = `Searching for "${searchTerm}" once session data loads.`;
+    return;
+  }
+  if (activeAppMode === "timeline") {
+    const total = totalEvents ?? modeTimelineRows().length;
+    const matching = matchingEvents ?? modeTimelineRows().filter(modeRowMatchesSearchTerm).length;
+    searchStatus.classList.add(matching ? "has-results" : "no-results");
+    searchStatus.textContent = matching
+      ? `Search "${searchTerm}" matched ${formatNumber(matching)} of ${formatNumber(total)} Timeline events.`
+      : `No Timeline events match "${searchTerm}". Clear search or try another event, file, role, or tool term.`;
+    return;
+  }
+  const matchingNodes = nodes.filter(nodeMatchesSearch).length;
+  searchStatus.classList.add(matchingNodes ? "has-results" : "no-results");
+  searchStatus.textContent = matchingNodes
+    ? `Search "${searchTerm}" highlights ${formatNumber(matchingNodes)} map events; open Timeline for event-level results.`
+    : `No map events match "${searchTerm}"; open Timeline or clear search to continue.`;
 }
 
 function timelineModeText(): string {

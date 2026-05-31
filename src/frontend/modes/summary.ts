@@ -198,7 +198,7 @@ export function renderSummaryModePanel(options: SummaryModeOptions): void {
   hero.classList.add("summary-hero");
   hero.append(
     modeParagraph(
-      `${sessionName} is a ${sourceLabel(current.source)} trace with ${formatNumber(current.ui.totalTurns)} turns, ${formatNumber(current.totals.callCount)} tool calls, and ${formatNumber(current.totals.fileChangeCount)} file changes.`
+      `${sessionName} is a ${sourceLabel(current.source)} trace with ${formatCountLabel(current.ui.totalTurns, "turn")}, ${formatCountLabel(current.totals.callCount, "tool call")}, and ${formatCountLabel(current.totals.fileChangeCount, "file change")}.`
     ),
     modeParagraph(
       `${rawShareStatus}. Sanitized graph/export and copy-safe references reduce exposure compared with raw logs, but they still require human judgment before sharing.`
@@ -208,8 +208,8 @@ export function renderSummaryModePanel(options: SummaryModeOptions): void {
   const triage = document.createElement("div");
   triage.className = "summary-triage";
   const whatHappened = modeCard("What Happened", [
-    `${formatNumber(current.ui.totalTurns)} turns across ${formatNumber(current.totals.promptCount)} prompts`,
-    `${formatNumber(current.totals.completedCallCount)} completed tool calls; ${formatNumber(current.totals.fileChangeCount)} file changes`,
+    `${formatCountLabel(current.ui.totalTurns, "turn")} across ${formatCountLabel(current.totals.promptCount, "prompt")}`,
+    `${formatCountLabel(current.totals.completedCallCount, "completed tool call")}; ${formatCountLabel(current.totals.fileChangeCount, "file change")}`,
     `${formatNumber(health.unknownEventCount)} unknown and ${formatNumber(health.malformedLineCount)} malformed parser records`,
   ]);
   const whatActions = document.createElement("div");
@@ -307,7 +307,7 @@ function renderForensicVerdictCard(current: SummarySessionGraph, rawShareStatus:
   );
 
   const action = priorityFinding
-    ? options.modeButton("Inspect Highest-Priority Finding", () => openInsightEvidence(priorityFinding, "raw", options))
+    ? options.modeButton("Start Inspect-First Review", () => openInsightEvidence(priorityFinding, "timeline", options))
     : options.modeButton("Review Parser Health", () => options.selectAppMode("health"));
   action.classList.add("summary-primary-cta");
   const actions = document.createElement("div");
@@ -461,6 +461,10 @@ function compactSummaryInsightText(text: string, limit: number): string {
     return "none logged";
   }
   return compact.length > limit ? `${compact.slice(0, Math.max(0, limit - 3)).trimEnd()}...` : compact;
+}
+
+function formatCountLabel(value: number, singular: string, plural = `${singular}s`): string {
+  return `${formatNumber(value)} ${value === 1 ? singular : plural}`;
 }
 
 function summaryFact(title: string, facts: SummaryFactLine[], options: SummaryModeOptions): HTMLElement {
