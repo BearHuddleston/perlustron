@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Perlustron</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/styles.css?v=109138018334992" />
+    <link rel="stylesheet" href="/styles.css?v=103047167846328" />
   </head>
   <body>
     <main id="app">
@@ -18,8 +18,9 @@
         </div>
         <label class="search-box">
           <span aria-hidden="true"></span>
-          <input id="search-input" type="search" value="" placeholder="Search metadata (sessions, turns, files, errors...)" aria-label="Search metadata" autocomplete="off" />
+          <input id="search-input" type="search" value="" placeholder="Search metadata (sessions, turns, files, errors...)" aria-label="Search metadata" aria-describedby="search-status" autocomplete="off" />
           <kbd>Ctrl K</kbd>
+          <small id="search-status" class="search-status" role="status" aria-live="polite">Search filters Timeline evidence; type to see matching events.</small>
         </label>
         <div class="top-actions">
           <button id="live-toggle" class="live-select" type="button"><span></span><b id="live-state">LIVE</b> <small id="live-copy">Tailing session...</small></button>
@@ -31,6 +32,8 @@
           </button>
         </div>
       </header>
+
+      <div id="copy-feedback" class="copy-feedback" role="status" aria-live="polite" hidden></div>
 
       <section id="beta-banner" class="beta-banner" aria-label="Perlustron beta notice">
         <strong>Beta</strong>
@@ -204,6 +207,6 @@
       </footer>
 
     </main>
-    <script type="module" src="/app-v109138018334992.js"></script>
+    <script type="module" src="/app-v103047167846328.js"></script>
   </body>
 </html>
