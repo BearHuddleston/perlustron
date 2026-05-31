@@ -1,13 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { createCheck } from "./check-helpers.mjs";
 
 const releaseWorkflow = readFileSync(".github/workflows/release.yml", "utf8");
 const releaseDocs = readFileSync("docs/release.md", "utf8");
 const readme = readFileSync("README.md", "utf8");
+const packageMetadata = JSON.parse(readFileSync("package.json", "utf8"));
 const { expect, finish } = createCheck("Release workflow and docs");
+
+expect(
+  existsSync("scripts/verify-release-artifacts.mjs"),
+  "Repo should include a release artifact verifier script."
+);
+expect(
+  existsSync("scripts/check-release-verifier-safety.mjs") &&
+    packageMetadata.scripts?.["workflow:check"]?.includes("check-release-verifier-safety.mjs"),
+  "Workflow checks should run the release verifier safety regression."
+);
+expect(
+  /verify-release-artifacts\.mjs/.test(releaseDocs),
+  "Release docs should document how to run the release artifact verifier."
+);
 
 expect(
   releaseWorkflow.includes("Write release artifact manifest"),

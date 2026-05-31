@@ -12,7 +12,7 @@
     "smoke:browser": "npm run build:frontend && node scripts/smoke-browser.mjs",
     "offline:check": "node scripts/check-offline-assets.mjs",
     "ui:check": "node scripts/check-event-context-panel.mjs && node scripts/check-format-utils.mjs && node scripts/check-summary-mode-shell.mjs && node scripts/check-copy-safe-share.mjs && node scripts/check-ux-review-findings.mjs && node scripts/check-readable-redaction-placeholders.mjs && node scripts/check-live-camera-follow.mjs && node scripts/check-metadata-status-list.mjs",
-    "workflow:check": "node scripts/check-ci-workflow.mjs && node scripts/check-release-workflow.mjs",
+    "workflow:check": "node scripts/check-ci-workflow.mjs && node scripts/check-release-workflow.mjs && node scripts/check-release-verifier-safety.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "npm run typecheck && npm run offline:check && npm run ui:check && npm run workflow:check && cargo fmt --check && cargo test && cargo clippy --all-targets -- -D warnings"
   },
